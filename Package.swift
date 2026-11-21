@@ -17,8 +17,8 @@ let package = Package(
 	dependencies: [
 		.package(url: "https://github.com/juliand665/HandyOperators.git", from: "2.1.0"),
 		.package(url: "https://github.com/juliand665/ArrayBuilder.git", from: "1.1.0"),
-		.package(url: "https://github.com/juliand665/Protoquest.git", branch: "main"),
-		.package(url: "https://github.com/juliand665/ErgonomicCodable.git", branch: "main"),
+		.package(url: "https://github.com/juliand665/Protoquest.git", revision: "301aa4a5e52bc23223c378c3011a127ebde2bc06"),
+		.package(url: "https://github.com/juliand665/ErgonomicCodable.git", revision: "3c94fb9e698e9362c347077af2865cb01242181f"),
 		.package(url: "https://github.com/apple/swift-collections.git", from: "1.0.3"),
 	],
 	targets: [
