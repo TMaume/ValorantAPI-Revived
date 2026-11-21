@@ -14,7 +14,7 @@ extension ValorantClient {
 		var playerID: Player.ID
 		
 		var path: String {
-			"/personalization/v2/players/\(playerID)/playerloadout"
+			"/personalization/v3/players/\(playerID)/playerloadout"
 		}
 		
 		typealias Response = Loadout
@@ -42,7 +42,7 @@ extension ValorantClient {
 		var httpMethod: String { "PUT" }
 		
 		var path: String {
-			"/personalization/v2/players/\(playerID)/playerloadout"
+			"/personalization/v3/players/\(playerID)/playerloadout"
 		}
 		
 		typealias Response = Loadout
@@ -71,14 +71,69 @@ public struct Loadout: Codable {
 	public var isIncognito: Bool
 	public var identity: Identity
 	public var guns: [Gun]
-	public var sprays: [EquippedSpray]
+	public var expressions: [Expression]
+	
+	public var sprays: [EquippedSpray] {
+		let sprayAssets = expressions.filter { $0.typeID == .sprays }
+		return zip(Spray.Slot.ID.inCCWOrder, sprayAssets).compactMap { slot, expr in
+			guard !expr.assetID.isPseudoNull else { return nil }
+			return EquippedSpray(slot: slot, spray: .init(rawID: expr.assetID))
+		}
+	}
+	
+	public init(
+		subject: User.ID,
+		version: Int,
+		isIncognito: Bool,
+		identity: Identity,
+		guns: [Gun],
+		expressions: [Expression]
+	) {
+		self.subject = subject
+		self.version = version
+		self.isIncognito = isIncognito
+		self.identity = identity
+		self.guns = guns
+		self.expressions = expressions
+	}
+	
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		subject = try container.decode(User.ID.self, forKey: .subject)
+		version = try container.decode(Int.self, forKey: .version)
+		isIncognito = try container.decode(Bool.self, forKey: .isIncognito)
+		identity = try container.decode(Identity.self, forKey: .identity)
+		guns = try container.decode([Gun].self, forKey: .guns)
+		if let active = try container.decodeIfPresent([Expression].self, forKey: .expressions) {
+			expressions = active
+		} else if let legacySprays = try container.decodeIfPresent([EquippedSpray].self, forKey: .legacySprays) {
+			let bySlot = Dictionary(uniqueKeysWithValues: legacySprays.map { ($0.slot, $0.spray) })
+			expressions = Spray.Slot.ID.inCCWOrder.compactMap { slot in
+				guard let spray = bySlot[slot] else { return nil }
+				return Expression(typeID: .sprays, assetID: spray.rawID)
+			}
+		} else {
+			expressions = []
+		}
+	}
+	
+	public func encode(to encoder: Encoder) throws {
+		var container = encoder.container(keyedBy: CodingKeys.self)
+		try container.encode(subject, forKey: .subject)
+		try container.encode(version, forKey: .version)
+		try container.encode(isIncognito, forKey: .isIncognito)
+		try container.encode(identity, forKey: .identity)
+		try container.encode(guns, forKey: .guns)
+		try container.encode(expressions, forKey: .expressions)
+	}
 	
 	private enum CodingKeys: String, CodingKey {
 		case subject = "Subject"
 		case version = "Version"
 		case identity = "Identity"
 		case guns = "Guns"
-		case sprays = "Sprays"
+		case expressions = "ActiveExpressions"
+		case legacySprays = "Sprays"
 		case isIncognito = "Incognito"
 	}
 	
@@ -155,9 +210,29 @@ public struct Loadout: Codable {
 		}
 	}
 	
+	public struct Expression: Equatable, Codable {
+		public var typeID: ItemType.ID
+		public var assetID: LowercaseUUID
+		
+		public init(typeID: ItemType.ID, assetID: LowercaseUUID) {
+			self.typeID = typeID
+			self.assetID = assetID
+		}
+		
+		private enum CodingKeys: String, CodingKey {
+			case typeID = "TypeID"
+			case assetID = "AssetID"
+		}
+	}
+	
 	public struct EquippedSpray: Codable {
 		public var slot: Spray.Slot.ID
 		public var spray: Spray.ID
+		
+		public init(slot: Spray.Slot.ID, spray: Spray.ID) {
+			self.slot = slot
+			self.spray = spray
+		}
 		
 		private enum CodingKeys: String, CodingKey {
 			case slot = "EquipSlotID"
@@ -202,6 +277,7 @@ public struct UpdatableLoadout {
 	public var identity: Loadout.Identity
 	public var guns: [Weapon.ID: Loadout.Gun]
 	public var sprays: [Spray.Slot.ID: Spray.ID]
+	fileprivate var otherExpressions: [Loadout.Expression]
 	
 	public init(_ loadout: Loadout) {
 		subject = loadout.subject
@@ -209,6 +285,7 @@ public struct UpdatableLoadout {
 		identity = loadout.identity
 		guns = .init(uniqueKeysWithValues: loadout.guns.map { ($0.id, $0) })
 		sprays = .init(uniqueKeysWithValues: loadout.sprays.map { ($0.slot, $0.spray) })
+		otherExpressions = loadout.expressions.filter { $0.typeID != .sprays }
 	}
 	
 	public func currentWeapon(for instance: Weapon.Buddy.Instance.ID) -> Weapon.ID? {
@@ -223,6 +300,10 @@ extension Loadout {
 		isIncognito = loadout.isIncognito
 		identity = loadout.identity
 		guns = .init(loadout.guns.values)
-		sprays = .init(loadout.sprays.map(Loadout.EquippedSpray.init))
+		let sprayExpressions = Spray.Slot.ID.inCCWOrder.compactMap { slot -> Expression? in
+			guard let spray = loadout.sprays[slot] else { return nil }
+			return Expression(typeID: .sprays, assetID: spray.rawID)
+		}
+		expressions = sprayExpressions + loadout.otherExpressions
 	}
 }
