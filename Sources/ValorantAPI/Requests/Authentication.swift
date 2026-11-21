@@ -4,11 +4,11 @@ import Protoquest
 
 extension AuthClient {
 	public static let riotLoginURL = URL(
-		string: "https://authenticate.riotgames.com/login?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fauth.riotgames.com%2Fauthorize%3Fclient_id%3Dplay-valorant-web-prod%26nonce%3D1%26redirect_uri%3Dhttps%253A%252F%252Fplayvalorant.com%252F%26response_type%3Dtoken%2520id_token&response_type=token%20id_token&method=riot_identity"
+		string: "https://authenticate.riotgames.com/login?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fauth.riotgames.com%2Fauthorize%3Fclient_id%3Dplay-valorant-web-prod%26nonce%3D1%26redirect_uri%3Dhttps%253A%252F%252Fplayvalorant.com%252F%26response_type%3Dtoken%2520id_token%26scope%3Daccount%2520openid&response_type=token%20id_token&scope=account%20openid&method=riot_identity"
 	)!
 	
 	private static let riotAuthorizeURL = URL(
-		string: "https://auth.riotgames.com/authorize?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fplayvalorant.com%2F&response_type=token%20id_token"
+		string: "https://auth.riotgames.com/authorize?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fplayvalorant.com%2F&response_type=token%20id_token&scope=account%20openid"
 	)!
 	
 	static func invalidTokenURLError(_ url: URL) -> Error {
