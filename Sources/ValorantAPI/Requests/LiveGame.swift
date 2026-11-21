@@ -48,6 +48,11 @@ extension ValorantClient {
 	public func lockInAgent(_ agentID: Agent.ID, in matchID: Match.ID) async throws -> LivePregameInfo {
 		try await pickAgent(agentID, in: matchID, shouldLock: true)
 	}
+	
+	/// Quits (dodges) a pregame match during agent select.
+	public func quitPregameMatch(_ matchID: Match.ID) async throws {
+		try await send(QuitPregameMatchRequest(matchID: matchID))
+	}
 }
 
 private struct LivePlayerInfoRequest: GetJSONRequest, LiveGameRequest {
@@ -90,6 +95,18 @@ private struct PickAgentRequest: GetJSONRequest, LiveGameRequest {
 	}
 	
 	typealias Response = LivePregameInfo
+}
+
+private struct QuitPregameMatchRequest: StatusCodeRequest, LiveGameRequest {
+	var httpMethod: String { "POST" }
+	
+	var matchID: Match.ID
+	
+	var path: String {
+		"/pregame/v1/matches/\(matchID)/quit"
+	}
+	
+	func encode(to rawRequest: inout URLRequest) {}
 }
 
 /// marks requests as needing a different base URL
