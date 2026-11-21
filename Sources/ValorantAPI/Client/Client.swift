@@ -62,8 +62,15 @@ public struct ValorantClient {
 	}
 	
 	func send<R: ValorantRequest>(_ request: R) async throws -> R.Response {
+		let resolvedVersion: String
+		if let clientVersion, !clientVersion.isEmpty {
+			resolvedVersion = clientVersion
+		} else {
+			resolvedVersion = await ClientVersionResolver.shared.resolve()
+		}
+		
 		let urlRequest = try request.urlRequest(for: location) <- {
-			$0.headers.clientVersion = clientVersion
+			$0.headers.clientVersion = resolvedVersion
 			$0.headers.clientPlatform = Self.encodedPlatformInfo
 		}
 		
@@ -115,5 +122,36 @@ private final actor Logger {
 	
 	func log(request: URLRequest, result: Protoresult) {
 		log.logExchange(request: request, result: result)
+	}
+}
+
+private final actor ClientVersionResolver {
+	static let shared = ClientVersionResolver()
+	private static let fallbackVersion = "release-13.10-shipping-18-5893614"
+	
+	private var cachedVersion: String?
+	
+	func resolve() async -> String {
+		if let cachedVersion {
+			return cachedVersion
+		}
+		guard let url = URL(string: "https://valorant-api.com/v1/version") else {
+			return Self.fallbackVersion
+		}
+		do {
+			let (data, _) = try await URLSession.shared.data(from: url)
+			let decoded = try JSONDecoder().decode(VersionResponse.self, from: data)
+			cachedVersion = decoded.data.riotClientVersion
+			return decoded.data.riotClientVersion
+		} catch {
+			return Self.fallbackVersion
+		}
+	}
+	
+	private struct VersionResponse: Decodable {
+		let data: VersionData
+		struct VersionData: Decodable {
+			let riotClientVersion: String
+		}
 	}
 }
