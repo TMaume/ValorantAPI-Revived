@@ -61,6 +61,20 @@ public struct Contract: Equatable, Codable, Identifiable {
 		@StringKeyedDictionary
 		public var highestRewardedLevel: [LowercaseUUID: RewardedLevel]
 		
+		public init(totalEarned: Int, highestRewardedLevel: [LowercaseUUID: RewardedLevel] = [:]) {
+			self.totalEarned = totalEarned
+			self._highestRewardedLevel = .init(wrappedValue: highestRewardedLevel)
+		}
+		
+		public init(from decoder: Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			self.totalEarned = try container.decode(Int.self, forKey: .totalEarned)
+			self._highestRewardedLevel = try container.decodeIfPresent(
+				StringKeyedDictionary<LowercaseUUID, RewardedLevel>.self,
+				forKey: .highestRewardedLevel
+			) ?? .init(wrappedValue: [:])
+		}
+		
 		private enum CodingKeys: String, CodingKey {
 			case totalEarned = "TotalProgressionEarned"
 			case highestRewardedLevel = "HighestRewardedLevel"
