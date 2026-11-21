@@ -35,7 +35,9 @@ public struct ValorantClient {
 		self.sessionHandler = .init(session: session)
 		
 		self.clientStack = Protolayer
-			.urlSession(urlSessionOverride ?? .init(configuration: .ephemeral))
+			.urlSession(urlSessionOverride ?? .init(configuration: .ephemeral <- {
+				$0.httpAdditionalHeaders = ["User-Agent": ""]
+			}))
 #if DEBUG
 			.printExchanges()
 #endif
