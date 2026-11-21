@@ -31,6 +31,7 @@ struct AuthClient {
 		let urlRequest = try URLRequest(url: request.url(relativeTo: BaseURLs.authAPI)) <- {
 			try request.configure(&$0)
 			$0.headers.authorization = accessToken?.encoded
+			$0.setValue(Self.riotUserAgent, forHTTPHeaderField: "User-Agent")
 		}
 		
 		let response = try await Protolayer.urlSession(urlSession)
@@ -38,6 +39,8 @@ struct AuthClient {
 		
 		return try request.decodeResponse(from: response)
 	}
+	
+	static let riotUserAgent = "RiotClient/43.0.1.4195386.4190634 rso-auth (Windows; 10;;Professional, x64)"
 }
 
 protocol AuthRequest: Request {}

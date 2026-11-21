@@ -3,6 +3,40 @@ import HandyOperators
 import Protoquest
 
 extension AuthClient {
+	public static let riotLoginURL = URL(
+		string: "https://authenticate.riotgames.com/login?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fauth.riotgames.com%2Fauthorize%3Fclient_id%3Dplay-valorant-web-prod%26nonce%3D1%26redirect_uri%3Dhttps%253A%252F%252Fplayvalorant.com%252F%26response_type%3Dtoken%2520id_token&response_type=token%20id_token&method=riot_identity"
+	)!
+	
+	private static let riotAuthorizeURL = URL(
+		string: "https://auth.riotgames.com/authorize?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fplayvalorant.com%2F&response_type=token%20id_token"
+	)!
+	
+	static func invalidTokenURLError(_ url: URL) -> Error {
+		AuthHandlingError.invalidTokenURL(url)
+	}
+	
+	func getAccessTokenFromCookies() async throws -> AccessToken {
+		let delegate = NoRedirectDelegate()
+		let session = URLSession(configuration: urlSession.configuration, delegate: delegate, delegateQueue: nil)
+		defer { session.finishTasksAndInvalidate() }
+		
+		var request = URLRequest(url: Self.riotAuthorizeURL)
+		request.httpMethod = "GET"
+		request.setValue(Self.riotUserAgent, forHTTPHeaderField: "User-Agent")
+		
+		let (_, response) = try await session.data(for: request)
+		guard
+			let httpResponse = response as? HTTPURLResponse,
+			(300...399).contains(httpResponse.statusCode),
+			let location = httpResponse.value(forHTTPHeaderField: "Location"),
+			let redirectURL = URL(string: location),
+			let token = redirectURL.extractAccessToken()
+		else {
+			throw APIError.sessionExpired(mfaRequired: false)
+		}
+		return token
+	}
+	
 	func getAccessToken(
 		loginBehavior: LoginBehavior
 	) async throws -> AccessToken {
@@ -240,18 +274,35 @@ private struct PASRequest: JSONJSONRequest, Encodable, AuthRequest {
 	}
 }
 
+extension APISession {
+	public static let riotLoginURL = AuthClient.riotLoginURL
+}
+
+private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate {
+	func urlSession(
+		_ session: URLSession,
+		task: URLSessionTask,
+		willPerformHTTPRedirection response: HTTPURLResponse,
+		newRequest request: URLRequest,
+		completionHandler: @escaping (URLRequest?) -> Void
+	) {
+		completionHandler(nil)
+	}
+}
+
 extension URL {
 	func collectQueryItems() -> [String: String] {
-		.init(
-			uniqueKeysWithValues: URLComponents(url: self, resolvingAgainstBaseURL: false)!
-				.fragment!
-				.split(separator: "&")
-				.map {
-					let parts = $0.components(separatedBy: "=")
-					assert(parts.count == 2)
-					return (parts.first!, parts.last!)
-				}
-		)
+		guard let fragment = URLComponents(url: self, resolvingAgainstBaseURL: false)?.fragment else {
+			return [:]
+		}
+		var result: [String: String] = [:]
+		for pair in fragment.split(separator: "&") {
+			let parts = pair.split(separator: "=", maxSplits: 1)
+			if parts.count == 2 {
+				result[String(parts[0])] = String(parts[1])
+			}
+		}
+		return result
 	}
 	
 	func extractAccessToken() -> AccessToken? {

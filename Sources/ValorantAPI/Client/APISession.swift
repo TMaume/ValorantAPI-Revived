@@ -128,12 +128,47 @@ extension APISession {
 		self.cookies = client.cookies().map(Cookie.init)
 	}
 	
+	public init(
+		redirectURL: URL,
+		cookies: [HTTPCookie],
+		credentials: Credentials = .init(),
+		urlSessionOverride: URLSession? = nil
+	) async throws {
+		guard let accessToken = redirectURL.extractAccessToken() else {
+			throw AuthClient.invalidTokenURLError(redirectURL)
+		}
+		self.credentials = credentials
+		self.accessToken = accessToken
+		
+		var client = await AuthClient(urlSessionOverride: urlSessionOverride)
+		client.setCookies(cookies)
+		client.accessToken = accessToken
+		
+		let constClient = client
+		async let entitlement = constClient.getEntitlementsToken()
+		async let userID = constClient.getUserID()
+		async let location = constClient.getLocation(using: accessToken)
+		self.entitlementsToken = try await entitlement
+		self.userID = try await userID
+		self.location = try await location
+		
+		self.cookies = client.cookies().map(Cookie.init)
+	}
+	
 	mutating func refreshAccessToken(multifactorHandler: MultifactorHandler?) async throws {
 		let client = await AuthClient()
 		client.setCookies(cookies.map(\.httpCookie))
-		accessToken = try await client.getAccessToken(
-			loginBehavior: multifactorHandler.map { .allow(credentials, $0) } ?? .disallow
-		)
+		
+		do {
+			accessToken = try await client.getAccessTokenFromCookies()
+		} catch {
+			guard !credentials.username.isEmpty, !credentials.password.isEmpty, let multifactorHandler else {
+				throw APIError.sessionExpired(mfaRequired: false)
+			}
+			accessToken = try await client.getAccessToken(
+				loginBehavior: .allow(credentials, multifactorHandler)
+			)
+		}
 		
 		cookies = client.cookies().map(Cookie.init)
 	}
