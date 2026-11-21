@@ -34,6 +34,7 @@ public extension Weapon.ID {
 	static let shorty = Self("42da8ccc-40d5-affc-beec-15aa47b42eda")!
 	static let frenzy = Self("44d4e95c-4157-0037-81b2-17841bf2e8e3")!
 	static let ghost = Self("1baa85b4-4c70-1284-64bb-6481dfc3bb4e")!
+	static let bandit = Self("410b2e0b-4ceb-1321-1727-20858f7f3477")!
 	static let sheriff = Self("e336c6b8-418d-9340-d77f-7a9e4cfe0702")!
 	static let stinger = Self("f7e1b454-4ad4-1063-ec0a-159e56b58941")!
 	static let spectre = Self("462080d1-4035-2937-7c09-27aa2a5c27a7")!
@@ -43,7 +44,9 @@ public extension Weapon.ID {
 	static let guardian = Self("4ade7faa-4cf1-8376-95ef-39884480959b")!
 	static let phantom = Self("ee8e8d15-496b-07ac-e5f6-8fae5d4c7b1a")!
 	static let vandal = Self("9c82e19d-4575-0200-1a81-3eacf00cf872")!
+	static let warden = Self("8db0a1bf-4a50-832a-4566-faaaa6d250ca")!
 	static let marshal = Self("c4883e50-4494-202c-3ec3-6b8a9284f00b")!
+	static let outlaw = Self("5f0aaf7a-4289-3998-d5ff-eb9a5cf7ef5c")!
 	static let `operator` = Self("a03b24d3-4319-996d-0f8c-94bbfba1dfc7")!
 	static let ares = Self("55d8a0f4-4274-ca67-fe2c-06ab45efdf58")!
 	static let odin = Self("63e6c2b6-4a8e-869c-3d4c-e38355226584")!
@@ -53,6 +56,7 @@ public extension Weapon.ID {
 		shorty,
 		frenzy,
 		ghost,
+		bandit,
 		sheriff,
 		stinger,
 		spectre,
@@ -62,7 +66,9 @@ public extension Weapon.ID {
 		guardian,
 		phantom,
 		vandal,
+		warden,
 		marshal,
+		outlaw,
 		`operator`,
 		ares,
 		odin,
