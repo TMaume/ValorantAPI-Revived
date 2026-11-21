@@ -42,9 +42,9 @@ public extension Weapon.ID {
 	static let judge = Self("ec845bf4-4f79-ddda-a3da-0db3774b2794")!
 	static let bulldog = Self("ae3de142-4d85-2547-dd26-4e90bed35cf7")!
 	static let guardian = Self("4ade7faa-4cf1-8376-95ef-39884480959b")!
+	static let warden = Self("8db0a1bf-4a50-832a-4566-faaaa6d250ca")!
 	static let phantom = Self("ee8e8d15-496b-07ac-e5f6-8fae5d4c7b1a")!
 	static let vandal = Self("9c82e19d-4575-0200-1a81-3eacf00cf872")!
-	static let warden = Self("8db0a1bf-4a50-832a-4566-faaaa6d250ca")!
 	static let marshal = Self("c4883e50-4494-202c-3ec3-6b8a9284f00b")!
 	static let outlaw = Self("5f0aaf7a-4289-3998-d5ff-eb9a5cf7ef5c")!
 	static let `operator` = Self("a03b24d3-4319-996d-0f8c-94bbfba1dfc7")!
@@ -64,9 +64,9 @@ public extension Weapon.ID {
 		judge,
 		bulldog,
 		guardian,
+		warden,
 		phantom,
 		vandal,
-		warden,
 		marshal,
 		outlaw,
 		`operator`,
