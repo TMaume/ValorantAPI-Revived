@@ -2,6 +2,7 @@ import Foundation
 
 public struct Inventory: Codable {
 	public static let starterAgents: Set<Agent.ID> = [.jett, .phoenix, .sova, .brimstone, .sage]
+	public static let starterTotems: Set<Totem.ID> = [.statComFlex]
 	
 	public let purchasedAgents: Set<Agent.ID>
 	/// includes starter agents, unlike ``purchasedAgents``
@@ -26,7 +27,8 @@ public struct Inventory: Codable {
 		sprays = try container.decode(Set<Spray.ID>.self, forKey: .sprays)
 		contracts = try container.decode(Set<Contract.ID>.self, forKey: .contracts)
 		buddies = try container.decode([Weapon.Buddy.Level.ID: [Weapon.Buddy.Instance.ID]].self, forKey: .buddies)
-		totems = try container.decodeIfPresent(Set<Totem.ID>.self, forKey: .totems) ?? []
+		let decodedTotems = try container.decodeIfPresent(Set<Totem.ID>.self, forKey: .totems) ?? []
+		totems = decodedTotems.union(Self.starterTotems).subtracting([.none])
 	}
 	
 	init(_ raw: APIInventory) {
@@ -58,7 +60,7 @@ public struct Inventory: Codable {
 		buddies = collections[.buddies]?.items.lazy.map(Buddy.init)
 			.reduce(into: [:]) { $0[$1.level, default: []].append($1.instance) }
 			?? [:]
-		totems = collectItems(.totems)
+		totems = collectItems(.totems).union(Self.starterTotems).subtracting([.none])
 		
 		assert(purchasedAgents.intersection(Self.starterAgents).isEmpty)
 		agents = purchasedAgents.union(Self.starterAgents)
@@ -130,6 +132,13 @@ public enum Totem {
 extension Totem: InventoryItem {
 	public static let ownedItems = \Inventory.totems
 	public static let typeID = ItemType.ID.totems
+}
+
+public extension Totem.ID {
+	/// Default free Flex ("STAT-COM Flex") granted to every account; omitted from Riot's entitlements endpoint.
+	static let statComFlex = Self("af52b5a0-4a4c-03b2-c9d7-8187a08a2675")!
+	/// Internal unequip sentinel ("None" / UnequipTotem_DataAsset), not a selectable cosmetic.
+	static let none = Self("90f0a554-41b3-355b-6846-74a27aa3f7b9")!
 }
 
 /// agent, card, title, etc.

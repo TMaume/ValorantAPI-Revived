@@ -222,7 +222,7 @@ public struct Loadout: Equatable, Codable {
 		public var assetID: LowercaseUUID
 		
 		public var isEmpty: Bool {
-			assetID.isPseudoNull
+			assetID.isPseudoNull || (typeID == .totems && assetID == Totem.ID.none.rawID)
 		}
 		
 		public var spray: Spray.ID? {
@@ -230,7 +230,7 @@ public struct Loadout: Equatable, Codable {
 		}
 		
 		public var totem: Totem.ID? {
-			typeID == .totems && !assetID.isPseudoNull ? .init(rawID: assetID) : nil
+			typeID == .totems && !assetID.isPseudoNull && assetID != Totem.ID.none.rawID ? .init(rawID: assetID) : nil
 		}
 		
 		public static func spray(_ id: Spray.ID) -> Self {
