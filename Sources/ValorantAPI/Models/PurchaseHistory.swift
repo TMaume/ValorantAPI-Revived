@@ -9,11 +9,35 @@ public struct PurchaseHistory: Codable, Equatable {
 		self.ares = ares
 	}
 	
+	private enum CodingKeys: String, CodingKey {
+		case account, ares
+	}
+	
+	/// Riot's current Player Support API nests `ares` inside `account`; older responses had it at the top level.
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		let account = try container.decodeIfPresent(Account.self, forKey: .account) ?? .init(billing: .init())
+		self.account = account
+		self.ares = try container.decodeIfPresent(Ares.self, forKey: .ares) ?? account.ares ?? .init()
+	}
+	
 	public struct Account: Codable, Equatable {
 		public var billing: Billing
+		public var ares: Ares?
 		
-		public init(billing: Billing) {
+		public init(billing: Billing, ares: Ares? = nil) {
 			self.billing = billing
+			self.ares = ares
+		}
+		
+		private enum CodingKeys: String, CodingKey {
+			case billing, ares
+		}
+		
+		public init(from decoder: Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			self.billing = try container.decodeIfPresent(Billing.self, forKey: .billing) ?? .init()
+			self.ares = try container.decodeIfPresent(Ares.self, forKey: .ares)
 		}
 	}
 	
@@ -133,9 +157,34 @@ public struct PurchaseHistory: Codable, Equatable {
 			if let iso = iso8601Fractional.date(from: string) ?? iso8601Standard.date(from: string) {
 				return iso
 			}
+			if let sliced = sliceDate(string) {
+				return sliced
+			}
 			throw DecodingError.dataCorrupted(
 				.init(codingPath: [], debugDescription: "Could not parse a Player Support timestamp from \(string)")
 			)
+		}
+		
+		/// Mirrors Riot's support site parsing: `YYYY-MM-DD?HH:MM:SS…` or `YYYYMMDD?HHMMSS…`.
+		private static func sliceDate(_ string: String) -> Date? {
+			let chars = Array(string)
+			func int(_ range: Range<Int>) -> Int? {
+				guard range.upperBound <= chars.count else { return nil }
+				return Int(String(chars[range]))
+			}
+			var comps = DateComponents()
+			comps.timeZone = TimeZone(secondsFromGMT: 0)
+			if chars.count >= 19, chars[4] == "-" {
+				comps.year = int(0..<4); comps.month = int(5..<7); comps.day = int(8..<10)
+				comps.hour = int(11..<13); comps.minute = int(14..<16); comps.second = int(17..<19)
+			} else if chars.count >= 15 {
+				comps.year = int(0..<4); comps.month = int(4..<6); comps.day = int(6..<8)
+				comps.hour = int(9..<11); comps.minute = int(11..<13); comps.second = int(13..<15)
+			} else {
+				return nil
+			}
+			guard comps.year != nil, comps.month != nil, comps.day != nil else { return nil }
+			return Calendar(identifier: .gregorian).date(from: comps)
 		}
 		
 		fileprivate static func formatPlayerSupportDate(_ date: Date) -> String {
