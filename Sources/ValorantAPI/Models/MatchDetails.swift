@@ -29,8 +29,14 @@ extension MatchDetails {
 			$0[$1.teamID, default: 0] += $1.score
 		}
 		return teams.sorted { lhs, rhs in
+			if let lhsRank = lhs.placement, let rhsRank = rhs.placement, lhsRank > 0, rhsRank > 0, lhsRank != rhsRank {
+				return lhsRank < rhsRank
+			}
 			if lhs.won != rhs.won {
 				return lhs.won && !rhs.won
+			}
+			if let lhsHP = lhs.health?.ending, let rhsHP = rhs.health?.ending, lhsHP != rhsHP {
+				return lhsHP > rhsHP
 			}
 			if lhs.pointCount != rhs.pointCount {
 				return lhs.pointCount > rhs.pointCount
@@ -46,6 +52,9 @@ extension MatchDetails {
 			if lhsScore != rhsScore {
 				return lhsScore > rhsScore
 			}
+			if let lhsNum = lhs.teamNumber, let rhsNum = rhs.teamNumber, lhsNum != rhsNum {
+				return lhsNum < rhsNum
+			}
 			return lhs.id.rawID < rhs.id.rawID
 		}
 	}
@@ -57,7 +66,10 @@ extension MatchDetails {
 	
 	/// 1-based placement of the given team (`1` = 1st place), if present in `teams`.
 	public func placement(of teamID: Team.ID) -> Int? {
-		rankedTeams().firstIndex { $0.id == teamID }.map { $0 + 1 }
+		if let explicit = teams.first(where: { $0.id == teamID })?.placement, explicit > 0 {
+			return explicit
+		}
+		return rankedTeams().firstIndex { $0.id == teamID }.map { $0 + 1 }
 	}
 	
 	/// - returns (hardcoded) information on round structure, if game mode is known to work in rounds
@@ -136,16 +148,32 @@ public struct Team: Identifiable, Codable {
 	public typealias ID = ObjectID<Self, String>
 	
 	public var id: ID
+	public var teamNumber: Int?
 	public var won: Bool
+	public var placement: Int?
 	public var roundsPlayed, roundsWon: Int
 	public var pointCount: Int
+	public var health: Health?
+	
+	public struct Health: Codable, Hashable {
+		public var starting: Int
+		public var ending: Int
+		
+		private enum CodingKeys: String, CodingKey {
+			case starting = "tempSH"
+			case ending = "tempEH"
+		}
+	}
 	
 	private enum CodingKeys: String, CodingKey {
 		case id = "teamId"
+		case teamNumber
 		case won
+		case placement = "tempR"
 		case roundsPlayed
 		case roundsWon
 		case pointCount = "numPoints"
+		case health = "tempHI"
 	}
 }
 
@@ -375,7 +403,7 @@ private struct APIRoundResult: Decodable {
 			outcome: outcome,
 			outcomeCode: outcomeCode ?? "",
 			ceremony: ceremony ?? "",
-			winningTeam: winningTeam ?? .neutral,
+			winningTeam: (winningTeam?.rawID.isEmpty == false ? winningTeam : nil) ?? .neutral,
 			playerEconomies: playerEconomies,
 			playerScores: playerScores,
 			playerStats: playerStats ?? [],

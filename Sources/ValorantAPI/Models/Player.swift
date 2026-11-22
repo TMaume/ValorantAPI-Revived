@@ -10,6 +10,7 @@ public struct Player: Codable, Identifiable {
 	
 	/// Is `.neutral` for spectators in custom games.
 	public var teamID: Team.ID
+	public var teamNumber: Int?
 	public var partyID: Party.ID
 	/// Is `nil` for spectators in custom games.
 	public var agentID: Agent.ID?
@@ -48,6 +49,7 @@ public struct Player: Codable, Identifiable {
 		case tagLine
 		case platformInfo
 		case teamID = "teamId"
+		case teamNumber
 		case partyID = "partyId"
 		case agentID = "characterId"
 		case stats
