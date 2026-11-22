@@ -22,6 +22,7 @@ public struct ValorantClient {
 	public let userID: User.ID
 	
 	private let clientStack: Protolayer
+	private let cleanStack: Protolayer
 	private let sessionHandler: SessionHandler
 	private let logger = Logger()
 	
@@ -33,6 +34,7 @@ public struct ValorantClient {
 		self.location = session.location
 		
 		self.sessionHandler = .init(session: session)
+		let logger = self.logger
 		
 		self.clientStack = Protolayer
 			.urlSession(urlSessionOverride ?? .init(configuration: .ephemeral <- {
@@ -41,12 +43,21 @@ public struct ValorantClient {
 #if DEBUG
 			.printExchanges()
 #endif
-			.readExchange { [logger] request, result in
+			.readExchange { request, result in
 				await logger.log(request: request, result: result)
 			}
 			.transformRequest { [sessionHandler] in
 				$0.headers.authorization = try await sessionHandler.getAccessToken().encoded
 				$0.headers.entitlementsToken = await sessionHandler.session.entitlementsToken
+			}
+		
+		self.cleanStack = Protolayer
+			.urlSession(.init(configuration: .ephemeral))
+#if DEBUG
+			.printExchanges()
+#endif
+			.readExchange { request, result in
+				await logger.log(request: request, result: result)
 			}
 	}
 	
@@ -61,13 +72,15 @@ public struct ValorantClient {
 		}
 	}
 	
-	func send<R: ValorantRequest>(_ request: R) async throws -> R.Response {
-		let resolvedVersion: String
+	private func resolveClientVersion() async -> String {
 		if let clientVersion, !clientVersion.isEmpty {
-			resolvedVersion = clientVersion
-		} else {
-			resolvedVersion = await ClientVersionResolver.shared.resolve()
+			return clientVersion
 		}
+		return await ClientVersionResolver.shared.resolve()
+	}
+	
+	func send<R: ValorantRequest>(_ request: R) async throws -> R.Response {
+		let resolvedVersion = await resolveClientVersion()
 		
 		let urlRequest = try request.urlRequest(for: location) <- {
 			$0.headers.clientVersion = resolvedVersion
@@ -78,6 +91,64 @@ public struct ValorantClient {
 		
 		let code = response.httpMetadata!.statusCode
 		guard (200..<300).contains(code) else {
+			throw APIError(statusCode: code, response: response)
+		}
+		
+		return try request.decodeResponse(from: response)
+	}
+	
+	func sendWithPlayerPreferencesAuth<R: ValorantRequest>(_ request: R) async throws -> R.Response {
+		do {
+			return try await send(request)
+		} catch APIError.unauthorized {
+			return try await retryWithPlayerPreferencesAuth(request)
+		} catch let APIError.badResponseCode(code, response, riotError) {
+			guard code == 401 || code == 403 else {
+				throw APIError.badResponseCode(code, response, riotError)
+			}
+			return try await retryWithPlayerPreferencesAuth(request)
+		}
+	}
+	
+	private func retryWithPlayerPreferencesAuth<R: ValorantRequest>(_ request: R) async throws -> R.Response {
+		let resolvedVersion = await resolveClientVersion()
+		
+		func makeRequest(auth: (authorization: String, entitlementsToken: String), includeEntitlements: Bool) throws -> URLRequest {
+			try request.urlRequest(for: location) <- {
+				$0.headers.authorization = auth.authorization
+				$0.headers.entitlementsToken = includeEntitlements ? auth.entitlementsToken : nil
+				$0.headers.clientVersion = resolvedVersion
+				$0.headers.clientPlatform = Self.encodedPlatformInfo
+				$0.setValue("application/json", forHTTPHeaderField: "Accept")
+			}
+		}
+		
+		func sendVariants(with auth: (authorization: String, entitlementsToken: String)) async throws -> Protoresponse {
+			let first = try await cleanStack.send(try makeRequest(auth: auth, includeEntitlements: true))
+			guard first.httpMetadata?.statusCode == 403 else {
+				return first
+			}
+			return try await cleanStack.send(try makeRequest(auth: auth, includeEntitlements: false))
+		}
+		
+		let webAuth: (authorization: String, entitlementsToken: String)
+		do {
+			webAuth = try await sessionHandler.getPlayerPreferencesAuth(client: .webUnrestricted, forceRefresh: false)
+		} catch {
+			throw PlayerSettingsError.reauthRequired
+		}
+		
+		var response = try await sendVariants(with: webAuth)
+		if response.httpMetadata?.statusCode == 403,
+		   let riotClientAuth = try? await sessionHandler.getPlayerPreferencesAuth(client: .riotClient, forceRefresh: true) {
+			response = try await sendVariants(with: riotClientAuth)
+		}
+		
+		let code = response.httpMetadata!.statusCode
+		guard (200..<300).contains(code) else {
+			if code == 403 {
+				throw PlayerSettingsError.reauthRequired
+			}
 			throw APIError(statusCode: code, response: response)
 		}
 		

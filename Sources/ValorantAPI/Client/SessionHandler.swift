@@ -14,9 +14,49 @@ final actor SessionHandler {
 	
 	private var isResumingSession = false
 	private var waitingForSession: [CheckedContinuation<Void, Error>] = []
+	private var playerPreferencesAuth: (accessToken: AccessToken, entitlementsToken: String)?
 	
 	init(session: APISession) {
 		self.session = session
+	}
+	
+	enum PlayerPreferencesClient {
+		case webUnrestricted
+		case riotClient
+	}
+	
+	func getPlayerPreferencesAuth(
+		client: PlayerPreferencesClient = .webUnrestricted,
+		forceRefresh: Bool = false
+	) async throws -> (authorization: String, entitlementsToken: String) {
+		if !forceRefresh, let cached = playerPreferencesAuth, !cached.accessToken.hasExpired {
+			return (cached.accessToken.encoded, cached.entitlementsToken)
+		}
+		
+		var authClient = await AuthClient()
+		authClient.setCookies(session.cookies.map(\.httpCookie))
+		
+		let token: AccessToken
+		switch client {
+		case .webUnrestricted:
+			if let webToken = try? await authClient.getAccessTokenFromCookies() {
+				token = webToken
+			} else {
+				token = try await authClient.getRiotClientAccessTokenFromCookies()
+			}
+		case .riotClient:
+			token = try await authClient.getRiotClientAccessTokenFromCookies()
+		}
+		
+		authClient.accessToken = token
+		let entitlements = try await authClient.getEntitlementsToken()
+		let updatedCookies = authClient.cookies()
+		if !updatedCookies.isEmpty {
+			session.cookies = updatedCookies.map(Cookie.init)
+		}
+		
+		playerPreferencesAuth = (token, entitlements)
+		return (token.encoded, entitlements)
 	}
 	
 	func getAccessToken() async throws -> AccessToken {

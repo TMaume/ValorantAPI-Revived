@@ -4,7 +4,7 @@ import Protoquest
 extension ValorantClient {
 	public func getPlayerSettings() async throws -> PlayerSettings {
 		do {
-			return try await send(GetPlayerSettingsRequest())
+			return try await sendWithPlayerPreferencesAuth(GetPlayerSettingsRequest())
 		} catch APIError.resourceNotFound {
 			throw PlayerSettingsError.notFound
 		} catch let APIError.badResponseCode(code, response, riotError) {
@@ -17,8 +17,8 @@ extension ValorantClient {
 	}
 	
 	public func savePlayerSettings(_ data: String) async throws {
-		try await send(SavePlayerSettingsRequest(
-			body: .init(data: data, type: "Ares.PlayerSettings", productID: "Ares")
+		try await sendWithPlayerPreferencesAuth(SavePlayerSettingsRequest(
+			body: .init(data: data, type: "Ares.PlayerSettings", productID: "KeystoneClient")
 		))
 	}
 }

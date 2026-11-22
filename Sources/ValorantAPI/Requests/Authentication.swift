@@ -4,23 +4,27 @@ import Protoquest
 
 extension AuthClient {
 	public static let riotLoginURL = URL(
-		string: "https://authenticate.riotgames.com/login?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fauth.riotgames.com%2Fauthorize%3Fclient_id%3Dplay-valorant-web-prod%26nonce%3D1%26redirect_uri%3Dhttps%253A%252F%252Fplayvalorant.com%252F%26response_type%3Dtoken%2520id_token%26scope%3Daccount%2520openid&response_type=token%20id_token&scope=account%20openid&method=riot_identity"
+		string: "https://authenticate.riotgames.com/login?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fauth.riotgames.com%2Fauthorize%3Fclient_id%3Dplay-valorant-web-prod%26nonce%3D1%26redirect_uri%3Dhttps%253A%252F%252Fplayvalorant.com%252F%26response_type%3Dtoken%2520id_token&response_type=token%20id_token&method=riot_identity"
 	)!
 	
 	private static let riotAuthorizeURL = URL(
-		string: "https://auth.riotgames.com/authorize?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fplayvalorant.com%2F&response_type=token%20id_token&scope=account%20openid"
+		string: "https://auth.riotgames.com/authorize?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fplayvalorant.com%2F&response_type=token%20id_token"
+	)!
+	
+	private static let riotClientAuthorizeURL = URL(
+		string: "https://auth.riotgames.com/authorize?client_id=riot-client&nonce=1&redirect_uri=http%3A%2F%2Flocalhost%2Fredirect&response_type=token%20id_token&scope=account%20openid%20link%20ban%20lol_region"
 	)!
 	
 	static func invalidTokenURLError(_ url: URL) -> Error {
 		AuthHandlingError.invalidTokenURL(url)
 	}
 	
-	func getAccessTokenFromCookies() async throws -> AccessToken {
+	func getAccessTokenFromCookies(url: URL = Self.riotAuthorizeURL) async throws -> AccessToken {
 		let delegate = NoRedirectDelegate()
 		let session = URLSession(configuration: urlSession.configuration, delegate: delegate, delegateQueue: nil)
 		defer { session.finishTasksAndInvalidate() }
 		
-		var request = URLRequest(url: Self.riotAuthorizeURL)
+		var request = URLRequest(url: url)
 		request.httpMethod = "GET"
 		request.setValue(Self.riotUserAgent, forHTTPHeaderField: "User-Agent")
 		
@@ -35,6 +39,17 @@ extension AuthClient {
 			throw APIError.sessionExpired(mfaRequired: false)
 		}
 		return token
+	}
+	
+	func getRiotClientAccessTokenFromCookies() async throws -> AccessToken {
+		if
+			let cookiesResponse = try? await send(CookiesRequest()),
+			cookiesResponse.type == .response,
+			let token = cookiesResponse.response?.parameters.uri.extractAccessToken()
+		{
+			return token
+		}
+		return try await getAccessTokenFromCookies(url: Self.riotClientAuthorizeURL)
 	}
 	
 	func getAccessToken(
@@ -154,11 +169,11 @@ private struct CookiesRequest: JSONJSONRequest, Encodable, AuthRequest {
 	
 	var path: String { "api/v1/authorization" }
 	
-	let clientID = "play-valorant-web-prod"
+	let clientID = "riot-client"
 	let responseType = "token id_token"
-	let redirectURI = "https://playvalorant.com/"
-	let nonce = 1 // TODO: this feels wrong, not sure what the nonce would be for though
-	let scope = "account openid"
+	let redirectURI = "http://localhost/redirect"
+	let nonce = "1"
+	let scope = "account openid link ban lol_region"
 }
 
 private protocol AuthMessage: JSONJSONRequest, Encodable, AuthRequest

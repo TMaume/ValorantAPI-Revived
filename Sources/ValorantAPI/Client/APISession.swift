@@ -162,12 +162,16 @@ extension APISession {
 		do {
 			accessToken = try await client.getAccessTokenFromCookies()
 		} catch {
-			guard !credentials.username.isEmpty, !credentials.password.isEmpty, let multifactorHandler else {
-				throw APIError.sessionExpired(mfaRequired: false)
+			if let fallbackToken = try? await client.getRiotClientAccessTokenFromCookies() {
+				accessToken = fallbackToken
+			} else {
+				guard !credentials.username.isEmpty, !credentials.password.isEmpty, let multifactorHandler else {
+					throw APIError.sessionExpired(mfaRequired: false)
+				}
+				accessToken = try await client.getAccessToken(
+					loginBehavior: .allow(credentials, multifactorHandler)
+				)
 			}
-			accessToken = try await client.getAccessToken(
-				loginBehavior: .allow(credentials, multifactorHandler)
-			)
 		}
 		
 		cookies = client.cookies().map(Cookie.init)
