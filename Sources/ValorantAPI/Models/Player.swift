@@ -97,6 +97,20 @@ public struct Player: Codable, Identifiable {
 		public var accountLevel: Int
 		public var isIncognito: Bool
 		
+		public init(
+			id: Player.ID,
+			cardID: PlayerCard.ID,
+			titleID: PlayerTitle.ID,
+			accountLevel: Int,
+			isIncognito: Bool
+		) {
+			self.id = id
+			self.cardID = cardID
+			self.titleID = titleID
+			self.accountLevel = accountLevel
+			self.isIncognito = isIncognito
+		}
+		
 		private enum CodingKeys: String, CodingKey {
 			case id = "Subject"
 			case cardID = "PlayerCardID"
