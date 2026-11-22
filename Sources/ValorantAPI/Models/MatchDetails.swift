@@ -124,6 +124,7 @@ public struct MatchInfo: Codable, Identifiable, BasicMatchInfo {
 	public var modeID: GameMode.ID
 	public var isRanked: Bool
 	public var seasonID: Season.ID
+	public var gamePodID: String?
 	
 	public var gameLength: TimeInterval {
 		TimeInterval(gameLengthMillis) / 1000
@@ -141,6 +142,7 @@ public struct MatchInfo: Codable, Identifiable, BasicMatchInfo {
 		case modeID = "gameMode"
 		case isRanked
 		case seasonID = "seasonId"
+		case gamePodID = "gamePodId"
 	}
 }
 
