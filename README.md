@@ -1,6 +1,10 @@
 # ValorantAPI Revived
 
-A Swift package for accessing Valorant's client APIs, maintained in tandem with [Recon Bolt Revived](https://github.com/TMaume/Recon-Bolt-Revived).
+A Swift package for accessing Valorant's client APIs, originally created by [Julian Dunskus (juliand665)](https://github.com/juliand665) and revived in tandem with [Recon Bolt Revived](https://github.com/TMaume/Recon-Bolt-Revived).
+
+## Credits
+
+Originally created by [Julian Dunskus (juliand665)](https://github.com/juliand665).
 
 ## Background & Revival
 
