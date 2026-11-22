@@ -64,7 +64,7 @@ extension Loadout {
 	}
 }
 
-public struct Loadout: Codable {
+public struct Loadout: Equatable, Codable {
 	public var subject: User.ID
 	/// incremented every time the loadout is changed
 	public var version: Int
@@ -74,10 +74,9 @@ public struct Loadout: Codable {
 	public var expressions: [Expression]
 	
 	public var sprays: [EquippedSpray] {
-		let sprayAssets = expressions.filter { $0.typeID == .sprays }
-		return zip(Spray.Slot.ID.inCCWOrder, sprayAssets).compactMap { slot, expr in
-			guard !expr.assetID.isPseudoNull else { return nil }
-			return EquippedSpray(slot: slot, spray: .init(rawID: expr.assetID))
+		zip(Spray.Slot.ID.inCCWOrder, expressions).compactMap { slot, expr in
+			guard let spray = expr.spray else { return nil }
+			return EquippedSpray(slot: slot, spray: spray)
 		}
 	}
 	
@@ -137,10 +136,16 @@ public struct Loadout: Codable {
 		case isIncognito = "Incognito"
 	}
 	
-	public struct Gun: Codable {
+	public struct Gun: Equatable, Codable {
 		public var id: Weapon.ID
 		public var skin: Skin
 		public var buddy: Buddy?
+		
+		public init(id: Weapon.ID, skin: Skin, buddy: Buddy? = nil) {
+			self.id = id
+			self.skin = skin
+			self.buddy = buddy
+		}
 		
 		public init(from decoder: Decoder) throws {
 			let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -164,7 +169,7 @@ public struct Loadout: Codable {
 			case buddyID = "CharmID"
 		}
 		
-		public struct Skin: Codable {
+		public struct Skin: Equatable, Codable {
 			public var skin: Weapon.Skin.ID
 			public var level: Weapon.Skin.Level.ID
 			/// can be nil for freshly-bought lvl1 skins!
@@ -211,8 +216,30 @@ public struct Loadout: Codable {
 	}
 	
 	public struct Expression: Equatable, Codable {
+		public static let empty = Self(typeID: .sprays, assetID: .stupidNullID)
+		
 		public var typeID: ItemType.ID
 		public var assetID: LowercaseUUID
+		
+		public var isEmpty: Bool {
+			assetID.isPseudoNull
+		}
+		
+		public var spray: Spray.ID? {
+			typeID == .sprays && !assetID.isPseudoNull ? .init(rawID: assetID) : nil
+		}
+		
+		public var totem: Totem.ID? {
+			typeID == .totems && !assetID.isPseudoNull ? .init(rawID: assetID) : nil
+		}
+		
+		public static func spray(_ id: Spray.ID) -> Self {
+			.init(typeID: .sprays, assetID: id.rawID)
+		}
+		
+		public static func totem(_ id: Totem.ID) -> Self {
+			.init(typeID: .totems, assetID: id.rawID)
+		}
 		
 		public init(typeID: ItemType.ID, assetID: LowercaseUUID) {
 			self.typeID = typeID
@@ -225,7 +252,7 @@ public struct Loadout: Codable {
 		}
 	}
 	
-	public struct EquippedSpray: Codable {
+	public struct EquippedSpray: Equatable, Codable {
 		public var slot: Spray.Slot.ID
 		public var spray: Spray.ID
 		
@@ -240,11 +267,23 @@ public struct Loadout: Codable {
 		}
 	}
 	
-	public struct Identity: Codable {
+	public struct Identity: Equatable, Codable {
 		public var card: PlayerCard.ID
 		public var title: PlayerTitle.ID
 		public var levelBorder: LevelBorder.ID
 		public var isLevelHidden: Bool
+		
+		public init(
+			card: PlayerCard.ID,
+			title: PlayerTitle.ID,
+			levelBorder: LevelBorder.ID,
+			isLevelHidden: Bool
+		) {
+			self.card = card
+			self.title = title
+			self.levelBorder = levelBorder
+			self.isLevelHidden = isLevelHidden
+		}
 		
 		private enum CodingKeys: String, CodingKey {
 			case card = "PlayerCardID"
@@ -256,9 +295,6 @@ public struct Loadout: Codable {
 }
 
 extension LowercaseUUID {
-	// i DESPISE when people (riot…) do this. null exists for a reason!!!!
-	private static let stupidNullID = Self(.init(uuidString: "00000000-0000-0000-0000-000000000000")!)
-	
 	public var isPseudoNull: Bool {
 		self == .stupidNullID
 	}
@@ -271,21 +307,38 @@ extension ObjectID where RawID == LowercaseUUID {
 	}
 }
 
-public struct UpdatableLoadout {
+public struct UpdatableLoadout: Equatable, Codable {
 	public let subject: User.ID
 	public var isIncognito: Bool
 	public var identity: Loadout.Identity
 	public var guns: [Weapon.ID: Loadout.Gun]
-	public var sprays: [Spray.Slot.ID: Spray.ID]
-	fileprivate var otherExpressions: [Loadout.Expression]
+	public var expressions: [Int: Loadout.Expression]
+	
+	public init(
+		subject: User.ID,
+		isIncognito: Bool,
+		identity: Loadout.Identity,
+		guns: [Weapon.ID: Loadout.Gun],
+		expressions: [Int: Loadout.Expression]
+	) {
+		self.subject = subject
+		self.isIncognito = isIncognito
+		self.identity = identity
+		self.guns = guns
+		self.expressions = expressions
+	}
 	
 	public init(_ loadout: Loadout) {
 		subject = loadout.subject
 		isIncognito = loadout.isIncognito
 		identity = loadout.identity
 		guns = .init(uniqueKeysWithValues: loadout.guns.map { ($0.id, $0) })
-		sprays = .init(uniqueKeysWithValues: loadout.sprays.map { ($0.slot, $0.spray) })
-		otherExpressions = loadout.expressions.filter { $0.typeID != .sprays }
+		expressions = Dictionary(
+			uniqueKeysWithValues: loadout.expressions
+				.prefix(4)
+				.enumerated()
+				.filter { !$0.element.isEmpty }
+		)
 	}
 	
 	public func currentWeapon(for instance: Weapon.Buddy.Instance.ID) -> Weapon.ID? {
@@ -300,10 +353,6 @@ extension Loadout {
 		isIncognito = loadout.isIncognito
 		identity = loadout.identity
 		guns = .init(loadout.guns.values)
-		let sprayExpressions = Spray.Slot.ID.inCCWOrder.compactMap { slot -> Expression? in
-			guard let spray = loadout.sprays[slot] else { return nil }
-			return Expression(typeID: .sprays, assetID: spray.rawID)
-		}
-		expressions = sprayExpressions + loadout.otherExpressions
+		expressions = (0..<4).map { loadout.expressions[$0] ?? .empty }
 	}
 }

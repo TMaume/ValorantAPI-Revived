@@ -235,6 +235,7 @@ public extension UntypedStoreItem {
 	var skinChroma: Weapon.Skin.Chroma.ID? { typed() }
 	var spray: Spray.ID? { typed() }
 	var buddy: Weapon.Buddy.Level.ID? { typed() }
+	var totem: Totem.ID? { typed() }
 	
 	func typed<Item: InventoryItem>(as _: Item.Type = Item.self) -> Item.ID? {
 		itemTypeID == Item.typeID ? .init(rawID: itemID) : nil

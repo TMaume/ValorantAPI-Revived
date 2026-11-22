@@ -6,6 +6,7 @@ public struct ContractDetails: Equatable, Codable {
 	public var activeSpecialContract: Contract.ID?
 	public var missions: [Mission]
 	public var missionMetadata: MissionMetadata
+	public var recruitmentProgress: [RecruitmentEventProgress]?
 	// Technically this object also lists processed matches, but I don't care about those right now and they'd be a significant extra effort to add.
 	
 	private enum CodingKeys: String, CodingKey {
@@ -13,6 +14,7 @@ public struct ContractDetails: Equatable, Codable {
 		case activeSpecialContract = "ActiveSpecialContract"
 		case missions = "Missions"
 		case missionMetadata = "MissionMetadata"
+		case recruitmentProgress = "ActiveRecruitmentEventProgress"
 	}
 	
 	public struct MissionMetadata: Equatable, Codable {
@@ -162,5 +164,37 @@ public struct DailyTicketProgress: Codable {
 			case progress = "Progress"
 			case wasRedeemed = "BonusApplied"
 		}
+	}
+}
+
+public struct RecruitmentEventProgress: Equatable, Codable {
+	public var agentID: Agent.ID
+	public var version: Int?
+	public var counterID: LowercaseUUID?
+	public var progressionEarned: Int
+	
+	private enum CodingKeys: String, CodingKey {
+		case agentID = "AgentID"
+		case version = "Version"
+		case counterID = "CounterID"
+		case progressionEarned = "ProgressionEarned"
+	}
+}
+
+public struct ActiveRecruitmentEvent: Equatable, Codable {
+	public var agentID: Agent.ID
+	public var counterID: LowercaseUUID?
+	public var milestoneThreshold: Int
+	public var startDate: Date
+	public var endDate: Date
+	public var isActive: Bool
+	
+	private enum CodingKeys: String, CodingKey {
+		case agentID = "AgentID"
+		case counterID = "CounterID"
+		case milestoneThreshold = "MilestoneThreshold"
+		case startDate = "StartDate"
+		case endDate = "EndDate"
+		case isActive = "IsActive"
 	}
 }

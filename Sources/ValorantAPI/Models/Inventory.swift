@@ -13,6 +13,21 @@ public struct Inventory: Codable {
 	public let sprays: Set<Spray.ID>
 	public let contracts: Set<Contract.ID>
 	public let buddies: [Weapon.Buddy.Level.ID: [Weapon.Buddy.Instance.ID]]
+	public let totems: Set<Totem.ID>
+	
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		purchasedAgents = try container.decode(Set<Agent.ID>.self, forKey: .purchasedAgents)
+		agents = try container.decode(Set<Agent.ID>.self, forKey: .agents)
+		cards = try container.decode(Set<PlayerCard.ID>.self, forKey: .cards)
+		titles = try container.decode(Set<PlayerTitle.ID>.self, forKey: .titles)
+		skinLevels = try container.decode(Set<Weapon.Skin.Level.ID>.self, forKey: .skinLevels)
+		skinChromas = try container.decode(Set<Weapon.Skin.Chroma.ID>.self, forKey: .skinChromas)
+		sprays = try container.decode(Set<Spray.ID>.self, forKey: .sprays)
+		contracts = try container.decode(Set<Contract.ID>.self, forKey: .contracts)
+		buddies = try container.decode([Weapon.Buddy.Level.ID: [Weapon.Buddy.Instance.ID]].self, forKey: .buddies)
+		totems = try container.decodeIfPresent(Set<Totem.ID>.self, forKey: .totems) ?? []
+	}
 	
 	init(_ raw: APIInventory) {
 		let collections = Dictionary(
@@ -43,6 +58,7 @@ public struct Inventory: Codable {
 		buddies = collections[.buddies]?.items.lazy.map(Buddy.init)
 			.reduce(into: [:]) { $0[$1.level, default: []].append($1.instance) }
 			?? [:]
+		totems = collectItems(.totems)
 		
 		assert(purchasedAgents.intersection(Self.starterAgents).isEmpty)
 		agents = purchasedAgents.union(Self.starterAgents)
@@ -106,6 +122,16 @@ extension Weapon.Buddy.Level: InventoryItem {
 	public static let typeID = ItemType.ID.buddies
 }
 
+/// Flex / Totem cosmetic item (equippable in the expression wheel).
+public enum Totem {
+	public typealias ID = ObjectID<Self, LowercaseUUID>
+}
+
+extension Totem: InventoryItem {
+	public static let ownedItems = \Inventory.totems
+	public static let typeID = ItemType.ID.totems
+}
+
 /// agent, card, title, etc.
 public enum ItemType {
 	public typealias ID = ObjectID<Self, LowercaseUUID>
@@ -120,6 +146,7 @@ public extension ItemType.ID {
 	static let sprays = Self("d5f120f8-ff8c-4aac-92ea-f2b5acbe9475")!
 	static let contracts = Self("f85cb6f7-33e5-4dc8-b609-ec7212301948")!
 	static let buddies = Self("dd3bf334-87f3-40bd-b043-682a57a8dc3a")!
+	static let totems = Self("03a572de-4234-31ed-d344-ababa488f981")!
 }
 
 struct APIInventory: Decodable {

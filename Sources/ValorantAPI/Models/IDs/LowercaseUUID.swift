@@ -1,17 +1,19 @@
 import Foundation
 
 public struct LowercaseUUID: Hashable, Codable, LosslessStringConvertible {
+	public static let stupidNullID = Self(UUID(uuidString: "00000000-0000-0000-0000-000000000000")!)
+	
 	var uuid: UUID
 	
 	public var description: String {
 		uuid.uuidString.lowercased()
 	}
 	
-	init(_ uuid: UUID) {
+	public init(_ uuid: UUID) {
 		self.uuid = uuid
 	}
 	
-	init() {
+	public init() {
 		self.init(UUID())
 	}
 	

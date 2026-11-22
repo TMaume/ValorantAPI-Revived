@@ -89,6 +89,36 @@ public struct ValorantClient {
 		await sessionHandler.session
 	}
 	
+	/// Returns a valid RSO access token string, refreshing the session if needed.
+	public func getAccessToken() async throws -> String {
+		try await sessionHandler.getAccessToken().token
+	}
+	
+	/// Returns the current entitlements JWT token.
+	public func getEntitlementsToken() async -> String {
+		await sessionHandler.session.entitlementsToken
+	}
+	
+	/// Fetches the Riot Player Assertion Service (PAS) JWT used to authenticate XMPP chat connections.
+	public func getChatPASToken() async throws -> String {
+		let accessToken = try await sessionHandler.getAccessToken()
+		var request = URLRequest(url: URL(string: "https://riot-geo.pas.si.riotgames.com/pas/v1/service/chat")!)
+		request.httpMethod = "GET"
+		request.setValue(accessToken.encoded, forHTTPHeaderField: "Authorization")
+		let response = try await Protolayer.urlSession(.shared).send(request)
+		if let http = response.httpMetadata, !(200..<300).contains(http.statusCode) {
+			throw APIError.badResponseCode(http.statusCode, response, nil)
+		}
+		guard let raw = try? response.decodeString(using: .utf8),
+			  let token = Optional(raw.trimmingCharacters(in: .whitespacesAndNewlines)
+				.trimmingCharacters(in: CharacterSet(charactersIn: "\""))),
+			  !token.isEmpty
+		else {
+			throw APIError.unauthorized
+		}
+		return token
+	}
+	
 	/// Returns a log containing the last few exchanges with the server.
 	public func getLog() async -> ClientLog {
 		await logger.log

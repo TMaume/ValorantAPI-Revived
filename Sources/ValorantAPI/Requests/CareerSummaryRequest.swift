@@ -7,7 +7,23 @@ extension ValorantClient {
 	}
 	
 	public func getAccountLevel() async throws -> Int {
-		try await send(AccountXPRequest(playerID: userID)).progress.level
+		try await getAccountXP().progress.level
+	}
+	
+	public func getAccountXP() async throws -> AccountXP {
+		try await send(AccountXPRequest(playerID: userID))
+	}
+	
+	public func setActRankBadgeHidden(_ hidden: Bool) async throws {
+		if hidden {
+			try await send(HideActRankBadgeRequest(playerID: userID, httpMethod: "POST", action: "hideactrankbadge"))
+		} else {
+			do {
+				try await send(HideActRankBadgeRequest(playerID: userID, httpMethod: "DELETE", action: "hideactrankbadge"))
+			} catch APIError.badResponseCode(404, _, _), APIError.badResponseCode(405, _, _), APIError.resourceNotFound {
+				try await send(HideActRankBadgeRequest(playerID: userID, httpMethod: "POST", action: "showactrankbadge"))
+			}
+		}
 	}
 }
 
@@ -28,19 +44,17 @@ private struct AccountXPRequest: GetJSONRequest, GameDataRequest {
 		"/account-xp/v1/players/\(playerID)"
 	}
 	
-	struct Response: Decodable {
-		var progress: Progress
-		
-		struct Progress: Decodable {
-			var level: Int
-			
-			private enum CodingKeys: String, CodingKey {
-				case level = "Level"
-			}
-		}
-		
-		private enum CodingKeys: String, CodingKey {
-			case progress = "Progress"
-		}
+	typealias Response = AccountXP
+}
+
+private struct HideActRankBadgeRequest: StatusCodeRequest, GameDataRequest {
+	var playerID: Player.ID
+	var httpMethod: String
+	var action: String
+	
+	var path: String {
+		"/mmr/v1/players/\(playerID)/\(action)"
 	}
+	
+	func encode(to rawRequest: inout URLRequest) {}
 }

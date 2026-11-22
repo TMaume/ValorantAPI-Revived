@@ -25,6 +25,14 @@ extension ValorantClient {
 		async let daily = getDailyTicketProgress()
 		return try await .init(contracts: contracts, daily: daily)
 	}
+	
+	public func getActiveRecruitmentEvent() async throws -> ActiveRecruitmentEvent? {
+		do {
+			return try await send(ActiveRecruitmentEventRequest())
+		} catch APIError.resourceNotFound, APIError.badResponseCode(404, _, _) {
+			return nil
+		}
+	}
 }
 
 public struct ContractsProgress {
@@ -91,4 +99,12 @@ struct DailyTicketResponse: Codable {
 	private enum CodingKeys: String, CodingKey {
 		case dailyRewards = "DailyRewards"
 	}
+}
+
+private struct ActiveRecruitmentEventRequest: GetJSONRequest, GameDataRequest {
+	var path: String {
+		"/contracts/v1/agents/activeRecruitmentEvent"
+	}
+	
+	typealias Response = ActiveRecruitmentEvent
 }
