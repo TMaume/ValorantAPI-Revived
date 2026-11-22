@@ -25,4 +25,5 @@ public extension Agent.ID {
 	static let chamber = Self("22697a3d-45bf-8dd7-4fec-84a9e28c69d7")!
 	static let harbor = Self("95b78ed7-4637-86d9-7e41-71ba8c293152")!
 	static let deadlock = Self("cc8b64c8-4b25-4ff9-6e7f-37b4da43d235")!
+	static let abilityDraftAgent = Self("773f0c78-4486-752b-68ef-4585d7f4b848")!
 }

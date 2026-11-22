@@ -16,13 +16,50 @@ public struct MatchDetails: Codable, Identifiable {
 		matchInfo = try container.decodeValue(forKey: .matchInfo)
 		players = try container.decodeValue(forKey: .players)
 		teams = try container.decodeValue(forKey: .teams)
-		roundResults = try container.decode([_RoundResult].self, forKey: .roundResults)
+		roundResults = (try container.decodeIfPresent([_RoundResult].self, forKey: .roundResults) ?? [])
 			.map(\.result)
-		kills = try container.decodeValue(forKey: .kills)
+		kills = try container.decodeIfPresent([Kill].self, forKey: .kills) ?? []
 	}
 }
 
 extension MatchDetails {
+	/// Orders teams from 1st to last place across both 2-team and multi-team modes (e.g. Gauntlet, Deathmatch).
+	public static func rankTeams(_ teams: [Team], players: [Player] = []) -> [Team] {
+		let teamScores: [Team.ID: Int] = players.reduce(into: [:]) {
+			$0[$1.teamID, default: 0] += $1.score
+		}
+		return teams.sorted { lhs, rhs in
+			if lhs.won != rhs.won {
+				return lhs.won && !rhs.won
+			}
+			if lhs.pointCount != rhs.pointCount {
+				return lhs.pointCount > rhs.pointCount
+			}
+			if lhs.roundsPlayed != rhs.roundsPlayed {
+				return lhs.roundsPlayed > rhs.roundsPlayed
+			}
+			if lhs.roundsWon != rhs.roundsWon {
+				return lhs.roundsWon > rhs.roundsWon
+			}
+			let lhsScore = teamScores[lhs.id, default: 0]
+			let rhsScore = teamScores[rhs.id, default: 0]
+			if lhsScore != rhsScore {
+				return lhsScore > rhsScore
+			}
+			return lhs.id.rawID < rhs.id.rawID
+		}
+	}
+	
+	/// Teams sorted from 1st place to last place.
+	public func rankedTeams() -> [Team] {
+		Self.rankTeams(teams, players: players)
+	}
+	
+	/// 1-based placement of the given team (`1` = 1st place), if present in `teams`.
+	public func placement(of teamID: Team.ID) -> Int? {
+		rankedTeams().firstIndex { $0.id == teamID }.map { $0 + 1 }
+	}
+	
 	/// - returns (hardcoded) information on round structure, if game mode is known to work in rounds
 	public var roundStructure: RoundStructure? {
 		switch matchInfo.modeID {
@@ -313,22 +350,22 @@ private struct APIRoundResult: Decodable {
 	var number: Int
 	
 	var outcome: RoundResult.Outcome
-	var outcomeCode: String
-	var ceremony: String
-	var winningTeam: Team.ID
+	var outcomeCode: String?
+	var ceremony: String?
+	var winningTeam: Team.ID?
 	
 	var playerEconomies: [RoundResult.PlayerEconomy]?
 	var playerScores: [RoundResult.PlayerScore]?
-	var playerStats: [RoundResult.PlayerStats]
+	var playerStats: [RoundResult.PlayerStats]?
 	
-	var plantSite: String
-	var plantTimeMillis: Int
-	var plantLocation: Position
+	var plantSite: String?
+	var plantTimeMillis: Int?
+	var plantLocation: Position?
 	var plantPlayerLocations: [PlayerLocation]?
 	var planter: Player.ID?
 	
-	var defuseTimeMillis: Int
-	var defuseLocation: Position
+	var defuseTimeMillis: Int?
+	var defuseLocation: Position?
 	var defusePlayerLocations: [PlayerLocation]?
 	var defuser: Player.ID?
 	
@@ -336,17 +373,17 @@ private struct APIRoundResult: Decodable {
 		.init(
 			number: number,
 			outcome: outcome,
-			outcomeCode: outcomeCode,
-			ceremony: ceremony,
-			winningTeam: winningTeam,
+			outcomeCode: outcomeCode ?? "",
+			ceremony: ceremony ?? "",
+			winningTeam: winningTeam ?? .neutral,
 			playerEconomies: playerEconomies,
 			playerScores: playerScores,
-			playerStats: playerStats,
-			plantSite: plantSite.isEmpty ? nil : plantSite,
+			playerStats: playerStats ?? [],
+			plantSite: (plantSite?.isEmpty == false) ? plantSite : nil,
 			plant: try planter.map {
 				try .init(
-					roundTimeMillis: plantTimeMillis,
-					position: plantLocation,
+					roundTimeMillis: plantTimeMillis ?? 0,
+					position: plantLocation ?? .init(x: 0, y: 0),
 					playerLocations: plantPlayerLocations ??? DecodingError.dataCorruptedError(
 						in: container,
 						debugDescription: "planter is present without plantPlayerLocations"
@@ -356,8 +393,8 @@ private struct APIRoundResult: Decodable {
 			},
 			defusal: try defuser.map {
 				try .init(
-					roundTimeMillis: defuseTimeMillis,
-					position: defuseLocation,
+					roundTimeMillis: defuseTimeMillis ?? 0,
+					position: defuseLocation ?? .init(x: 0, y: 0),
 					playerLocations: defusePlayerLocations ??? DecodingError.dataCorruptedError(
 						in: container,
 						debugDescription: "defuser is present without defusePlayerLocations"

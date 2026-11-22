@@ -10,6 +10,13 @@ public enum GameMode {
 		public static let escalation = Self("GunGame")
 		public static let replication = Self("OneForAll")
 		public static let swiftplay = Self("_Development/Swiftplay_EndOfRoundCredits")
+		public static let gauntlet = Self("AbilityDraftArena")
+		public static let teamDeathmatch = Self("HURM")
+		public static let allRandomOneSite = Self("AROS")
+		public static let knockout = Self("Dodgeball")
+		public static let retake = Self("FortCollins")
+		public static let skirmish = Self("Skirmish")
+		public static let skirmishAscension = Self("SkirmishAscension")
 		
 		public static let onboarding = Self("NewPlayerExperience")
 		public static let practice = Self("ShootingRange")
@@ -38,7 +45,10 @@ public enum GameMode {
 			}
 			// e.g. "Bomb/BombGameMode.BombGameMode_C"
 			
-			let lastSeparator = trimmed.lastIndex(of: "/")!
+			guard let lastSeparator = trimmed.lastIndex(of: "/") else {
+				self.init(String(trimmed))
+				return
+			}
 			self.init(String(trimmed.prefix(upTo: lastSeparator)))
 			// e.g. "Bomb"
 		}

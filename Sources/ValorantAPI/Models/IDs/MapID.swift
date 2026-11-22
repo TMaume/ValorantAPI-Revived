@@ -20,6 +20,7 @@ public struct MapID: SimpleRawWrapper {
 	public static let icebox = mapID("Port")
 	public static let breeze = mapID("Foxtrot")
 	public static let fracture = mapID("Canyon")
+	public static let gauntlet = mapID("AbilityDraft")
 	public static let range = mapID("Range", group: "Poveglia")
 	
 	private static func mapID(_ key: String, group: String? = nil) -> Self {

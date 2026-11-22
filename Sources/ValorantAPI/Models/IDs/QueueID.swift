@@ -8,9 +8,17 @@ public struct QueueID: SimpleRawWrapper, LosslessStringConvertible {
 		.unrated,
 		.swiftplay,
 		.spikeRush,
+		.gauntlet,
+		.teamDeathmatch,
+		.knockout,
+		.allRandomOneSite,
+		.skirmish2v2,
+		.skirmishAscension1v1,
+		.skirmishAscension2v2,
 		.replication,
 		.escalation,
 		.deathmatch,
+		.retake,
 		.snowballFight,
 		.newMap,
 		.premier,
@@ -25,6 +33,14 @@ public struct QueueID: SimpleRawWrapper, LosslessStringConvertible {
 	public static let snowballFight = Self("snowball")
 	public static let replication = Self("onefa")
 	public static let swiftplay = Self("swiftplay")
+	public static let gauntlet = Self("abilitydraftarena")
+	public static let teamDeathmatch = Self("hurm")
+	public static let allRandomOneSite = Self("valaram")
+	public static let knockout = Self("dodgeball")
+	public static let retake = Self("fortcollins")
+	public static let skirmish2v2 = Self("skirmish2v2")
+	public static let skirmishAscension1v1 = Self("skirmishascension1v1")
+	public static let skirmishAscension2v2 = Self("skirmishascension2v2")
 	/// used since Breeze to introduce new maps, display name always changing
 	public static let newMap = Self("newmap")
 	public static let premier = Self("premier")

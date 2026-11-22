@@ -14,8 +14,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/juliand665/ErgonomicCodable.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "d377cb1bffdd928ae957cc693641edef6d627c41"
+        "revision" : "3c94fb9e698e9362c347077af2865cb01242181f"
       }
     },
     {
@@ -32,8 +31,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/juliand665/Protoquest.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "380dc463833db7ae51663f1cbe8ba3fc5bb38f79"
+        "revision" : "301aa4a5e52bc23223c378c3011a127ebde2bc06"
       }
     },
     {
