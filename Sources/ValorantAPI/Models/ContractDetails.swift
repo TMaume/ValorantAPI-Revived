@@ -9,6 +9,36 @@ public struct ContractDetails: Equatable, Codable {
 	public var recruitmentProgress: [RecruitmentEventProgress]?
 	// Technically this object also lists processed matches, but I don't care about those right now and they'd be a significant extra effort to add.
 	
+	public init(
+		contracts: [Contract],
+		activeSpecialContract: Contract.ID?,
+		missions: [Mission],
+		missionMetadata: MissionMetadata,
+		recruitmentProgress: [RecruitmentEventProgress]? = nil
+	) {
+		self.contracts = contracts
+		self.activeSpecialContract = activeSpecialContract
+		self.missions = missions
+		self.missionMetadata = missionMetadata
+		self.recruitmentProgress = recruitmentProgress
+	}
+	
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		contracts = try container.decode([Contract].self, forKey: .contracts)
+		activeSpecialContract = try container.decodeIfPresent(Contract.ID.self, forKey: .activeSpecialContract)
+		missions = try container.decode([Mission].self, forKey: .missions)
+		missionMetadata = try container.decode(MissionMetadata.self, forKey: .missionMetadata)
+		
+		if let array = try? container.decodeIfPresent([RecruitmentEventProgress].self, forKey: .recruitmentProgress) {
+			recruitmentProgress = array
+		} else if let single = try? container.decodeIfPresent(RecruitmentEventProgress.self, forKey: .recruitmentProgress) {
+			recruitmentProgress = [single]
+		} else {
+			recruitmentProgress = nil
+		}
+	}
+	
 	private enum CodingKeys: String, CodingKey {
 		case contracts = "Contracts"
 		case activeSpecialContract = "ActiveSpecialContract"
@@ -173,6 +203,26 @@ public struct RecruitmentEventProgress: Equatable, Codable {
 	public var counterID: LowercaseUUID?
 	public var progressionEarned: Int
 	
+	public init(
+		agentID: Agent.ID,
+		version: Int? = nil,
+		counterID: LowercaseUUID? = nil,
+		progressionEarned: Int = 0
+	) {
+		self.agentID = agentID
+		self.version = version
+		self.counterID = counterID
+		self.progressionEarned = progressionEarned
+	}
+	
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		agentID = try container.decode(Agent.ID.self, forKey: .agentID)
+		version = try container.decodeIfPresent(Int.self, forKey: .version)
+		counterID = try container.decodeIfPresent(LowercaseUUID.self, forKey: .counterID)
+		progressionEarned = try container.decodeIfPresent(Int.self, forKey: .progressionEarned) ?? 0
+	}
+	
 	private enum CodingKeys: String, CodingKey {
 		case agentID = "AgentID"
 		case version = "Version"
@@ -188,6 +238,32 @@ public struct ActiveRecruitmentEvent: Equatable, Codable {
 	public var startDate: Date
 	public var endDate: Date
 	public var isActive: Bool
+	
+	public init(
+		agentID: Agent.ID,
+		counterID: LowercaseUUID? = nil,
+		milestoneThreshold: Int = 200_000,
+		startDate: Date = .distantPast,
+		endDate: Date = .distantFuture,
+		isActive: Bool = true
+	) {
+		self.agentID = agentID
+		self.counterID = counterID
+		self.milestoneThreshold = milestoneThreshold
+		self.startDate = startDate
+		self.endDate = endDate
+		self.isActive = isActive
+	}
+	
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		agentID = try container.decode(Agent.ID.self, forKey: .agentID)
+		counterID = try container.decodeIfPresent(LowercaseUUID.self, forKey: .counterID)
+		milestoneThreshold = try container.decodeIfPresent(Int.self, forKey: .milestoneThreshold) ?? 200_000
+		startDate = try container.decodeIfPresent(Date.self, forKey: .startDate) ?? .distantPast
+		endDate = try container.decodeIfPresent(Date.self, forKey: .endDate) ?? .distantFuture
+		isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+	}
 	
 	private enum CodingKeys: String, CodingKey {
 		case agentID = "AgentID"
