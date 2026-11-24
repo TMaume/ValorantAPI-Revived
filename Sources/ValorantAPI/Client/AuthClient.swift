@@ -46,15 +46,15 @@ struct AuthClient {
 protocol AuthRequest: Request {}
 
 extension JSONEncodingRequest where Self: AuthRequest {
-	var encoderOverride: JSONEncoder? { requestEncoder }
+	var encoderOverride: JSONEncoder? { makeRequestEncoder() }
 }
 
 extension JSONDecodingRequest where Self: AuthRequest {
-	var decoderOverride: JSONDecoder? { responseDecoder }
+	var decoderOverride: JSONDecoder? { makeResponseDecoder() }
 	
 	func decodeResponse(from raw: Protoresponse) throws -> Response {
 		do {
-			return try raw.decodeJSON(using: responseDecoder)
+			return try raw.decodeJSON(using: makeResponseDecoder())
 		} catch {
 			if raw.httpMetadata!.statusCode == 403 {
 				throw AuthDecodingError.accessDenied
@@ -65,11 +65,16 @@ extension JSONDecodingRequest where Self: AuthRequest {
 	}
 }
 
-private let requestEncoder = JSONEncoder() <- {
-	$0.keyEncodingStrategy = .convertToSnakeCase
+private func makeRequestEncoder() -> JSONEncoder {
+	JSONEncoder() <- {
+		$0.keyEncodingStrategy = .convertToSnakeCase
+	}
 }
-private let responseDecoder = JSONDecoder() <- {
-	$0.keyDecodingStrategy = .convertFromSnakeCase
+
+private func makeResponseDecoder() -> JSONDecoder {
+	JSONDecoder() <- {
+		$0.keyDecodingStrategy = .convertFromSnakeCase
+	}
 }
 
 private enum AuthDecodingError: Error, LocalizedError {

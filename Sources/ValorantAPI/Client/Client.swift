@@ -176,9 +176,9 @@ public struct ValorantClient {
 		var request = URLRequest(url: URL(string: "https://riot-geo.pas.si.riotgames.com/pas/v1/service/chat")!)
 		request.httpMethod = "GET"
 		request.setValue(accessToken.encoded, forHTTPHeaderField: "Authorization")
-		let response = try await Protolayer.urlSession(.shared).send(request)
+		let response = try await cleanStack.send(request)
 		if let http = response.httpMetadata, !(200..<300).contains(http.statusCode) {
-			throw APIError.badResponseCode(http.statusCode, response, nil)
+			throw APIError(statusCode: http.statusCode, response: response)
 		}
 		guard let raw = try? response.decodeString(using: .utf8),
 			  let token = Optional(raw.trimmingCharacters(in: .whitespacesAndNewlines)

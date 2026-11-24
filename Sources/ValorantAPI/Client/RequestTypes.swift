@@ -70,7 +70,7 @@ private extension JSONDecoder.DateDecodingStrategy {
 		?? (try? Date(timeIntervalSince1970: container.decode(TimeInterval.self) / 1000))
 		// ISO-8601 date string
 		?? (try? container.decode(String.self)).flatMap { string in
-			formatters.compactMap { $0.date(from: string) }.first
+			(try? isoFractional.parse(string)) ?? (try? isoStandard.parse(string))
 		}
 		// failed
 		??? DecodingError.dataCorruptedError(
@@ -79,9 +79,6 @@ private extension JSONDecoder.DateDecodingStrategy {
 		)
 	}
 	
-	// this would not be necessary if the formatter were lenient in its parsing, but nooo…
-	private static let formatters: [ISO8601DateFormatter] = [
-		ISO8601DateFormatter() <- { $0.formatOptions = [.withInternetDateTime] },
-		ISO8601DateFormatter() <- { $0.formatOptions = [.withInternetDateTime, .withFractionalSeconds] },
-	]
+	private static let isoFractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+	private static let isoStandard = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
 }

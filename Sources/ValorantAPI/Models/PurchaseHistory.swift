@@ -148,13 +148,9 @@ public struct PurchaseHistory: Codable, Equatable {
 		}
 		
 		fileprivate static func parseDate(_ string: String) throws -> Date {
-			if let parsed = playerSupportDateFormatter.date(from: string) {
-				return parsed
-			}
-			if let parsed = playerSupportShortDateFormatter.date(from: string) {
-				return parsed
-			}
-			if let iso = iso8601Fractional.date(from: string) ?? iso8601Standard.date(from: string) {
+			if let iso = (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(string))
+				?? (try? Date.ISO8601FormatStyle(includingFractionalSeconds: false).parse(string))
+			{
 				return iso
 			}
 			if let sliced = sliceDate(string) {
@@ -165,7 +161,7 @@ public struct PurchaseHistory: Codable, Equatable {
 			)
 		}
 		
-		/// Mirrors Riot's support site parsing: `YYYY-MM-DD?HH:MM:SS…` or `YYYYMMDD?HHMMSS…`.
+		/// Mirrors Riot's support site parsing: `YYYY-MM-DD?HH:MM:SS(.SSS)?…` or `YYYYMMDD?HHMMSS(.SSS)?…`.
 		private static func sliceDate(_ string: String) -> Date? {
 			let chars = Array(string)
 			func int(_ range: Range<Int>) -> Int? {
@@ -174,21 +170,43 @@ public struct PurchaseHistory: Codable, Equatable {
 			}
 			var comps = DateComponents()
 			comps.timeZone = TimeZone(secondsFromGMT: 0)
+			let fractionStart: Int
 			if chars.count >= 19, chars[4] == "-" {
 				comps.year = int(0..<4); comps.month = int(5..<7); comps.day = int(8..<10)
 				comps.hour = int(11..<13); comps.minute = int(14..<16); comps.second = int(17..<19)
+				fractionStart = 19
 			} else if chars.count >= 15 {
 				comps.year = int(0..<4); comps.month = int(4..<6); comps.day = int(6..<8)
 				comps.hour = int(9..<11); comps.minute = int(11..<13); comps.second = int(13..<15)
+				fractionStart = 15
 			} else {
 				return nil
+			}
+			if fractionStart < chars.count, chars[fractionStart] == "." {
+				var end = fractionStart + 1
+				while end < chars.count, chars[end].isASCII, chars[end].isNumber {
+					end += 1
+				}
+				let digits = chars[(fractionStart + 1)..<end]
+				if !digits.isEmpty {
+					let prefixDigits = Array(digits.prefix(9))
+					if let value = Int(String(prefixDigits)) {
+						var scale = 1_000_000_000
+						for _ in 0..<prefixDigits.count { scale /= 10 }
+						comps.nanosecond = value * scale
+					}
+				}
 			}
 			guard comps.year != nil, comps.month != nil, comps.day != nil else { return nil }
 			return Calendar(identifier: .gregorian).date(from: comps)
 		}
 		
 		fileprivate static func formatPlayerSupportDate(_ date: Date) -> String {
-			playerSupportDateFormatter.string(from: date)
+			let formatter = DateFormatter()
+			formatter.locale = Locale(identifier: "en_US_POSIX")
+			formatter.timeZone = TimeZone(secondsFromGMT: 0)
+			formatter.dateFormat = "yyyyMMdd'T'HHmmss.SSS'Z'"
+			return formatter.string(from: date)
 		}
 	}
 	
@@ -236,30 +254,3 @@ public struct PurchaseHistory: Codable, Equatable {
 	}
 }
 
-private let playerSupportDateFormatter: DateFormatter = {
-	let formatter = DateFormatter()
-	formatter.locale = Locale(identifier: "en_US_POSIX")
-	formatter.timeZone = TimeZone(secondsFromGMT: 0)
-	formatter.dateFormat = "yyyyMMdd'T'HHmmss.SSS'Z'"
-	return formatter
-}()
-
-private let playerSupportShortDateFormatter: DateFormatter = {
-	let formatter = DateFormatter()
-	formatter.locale = Locale(identifier: "en_US_POSIX")
-	formatter.timeZone = TimeZone(secondsFromGMT: 0)
-	formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
-	return formatter
-}()
-
-private let iso8601Fractional: ISO8601DateFormatter = {
-	let formatter = ISO8601DateFormatter()
-	formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-	return formatter
-}()
-
-private let iso8601Standard: ISO8601DateFormatter = {
-	let formatter = ISO8601DateFormatter()
-	formatter.formatOptions = [.withInternetDateTime]
-	return formatter
-}()
