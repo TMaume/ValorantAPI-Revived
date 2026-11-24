@@ -18,9 +18,27 @@ public enum PlayerLookupError: Error, LocalizedError {
 	}
 }
 
+public struct PlayerLookupResult {
+	public var user: User
+	public var location: Location
+	public var latestMatchID: Match.ID?
+	
+	public init(user: User, location: Location, latestMatchID: Match.ID? = nil) {
+		self.user = user
+		self.location = location
+		self.latestMatchID = latestMatchID
+	}
+}
+
 extension ValorantClient {
 	/// Resolves a player's Riot ID (`gameName#tagLine`) to their ``User`` and active ``Location`` using Riot's native account aliases API and shard match-history probing.
 	public func lookUpPlayer(gameName: String, tagLine: String) async throws -> (User, Location) {
+		let result = try await lookUpPlayerInfo(gameName: gameName, tagLine: tagLine)
+		return (result.user, result.location)
+	}
+	
+	/// Resolves a player's Riot ID (`gameName#tagLine`) to their ``User``, active ``Location``, and most recent ``Match/ID`` (if any).
+	public func lookUpPlayerInfo(gameName: String, tagLine: String) async throws -> PlayerLookupResult {
 		let cleanName = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
 		var cleanTag = tagLine.trimmingCharacters(in: .whitespacesAndNewlines)
 		while cleanTag.hasPrefix("#") {
@@ -59,7 +77,7 @@ extension ValorantClient {
 			do {
 				let history = try await self.in(candidate).getMatchHistory(userID: user.id)
 				if !history.isEmpty {
-					return (user, candidate)
+					return PlayerLookupResult(user: user, location: candidate, latestMatchID: history.first?.matchID)
 				}
 				if firstEmptyLocation == nil {
 					firstEmptyLocation = candidate
@@ -94,7 +112,7 @@ extension ValorantClient {
 		}
 		
 		if let fallback = firstEmptyLocation {
-			return (user, fallback)
+			return PlayerLookupResult(user: user, location: fallback, latestMatchID: nil)
 		}
 		throw PlayerLookupError.noRegionFound(gameName: user.gameName, tagLine: user.tagLine)
 	}
