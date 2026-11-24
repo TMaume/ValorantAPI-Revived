@@ -106,6 +106,7 @@ extension APISession {
 		self.credentials = credentials
 		
 		var client = await AuthClient(urlSessionOverride: urlSessionOverride)
+		defer { client.invalidate() }
 		if let other {
 			client.setCookies(other.cookies.map(\.httpCookie))
 		}
@@ -141,6 +142,7 @@ extension APISession {
 		self.accessToken = accessToken
 		
 		var client = await AuthClient(urlSessionOverride: urlSessionOverride)
+		defer { client.invalidate() }
 		client.setCookies(cookies)
 		client.accessToken = accessToken
 		
@@ -156,7 +158,8 @@ extension APISession {
 	}
 	
 	mutating func refreshAccessToken(multifactorHandler: MultifactorHandler?) async throws {
-		let client = await AuthClient()
+		var client = await AuthClient()
+		defer { client.invalidate() }
 		client.setCookies(cookies.map(\.httpCookie))
 		
 		do {
@@ -174,6 +177,8 @@ extension APISession {
 			}
 		}
 		
+		client.accessToken = accessToken
+		entitlementsToken = try await client.getEntitlementsToken()
 		cookies = client.cookies().map(Cookie.init)
 	}
 }

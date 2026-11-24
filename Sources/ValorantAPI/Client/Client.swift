@@ -39,6 +39,8 @@ public struct ValorantClient {
 		self.clientStack = Protolayer
 			.urlSession(urlSessionOverride ?? .init(configuration: .ephemeral <- {
 				$0.httpAdditionalHeaders = ["User-Agent": ""]
+				$0.timeoutIntervalForRequest = 20
+				$0.timeoutIntervalForResource = 60
 			}))
 #if DEBUG
 			.printExchanges()
@@ -46,13 +48,12 @@ public struct ValorantClient {
 			.readExchange { request, result in
 				await logger.log(request: request, result: result)
 			}
-			.transformRequest { [sessionHandler] in
-				$0.headers.authorization = try await sessionHandler.getAccessToken().encoded
-				$0.headers.entitlementsToken = await sessionHandler.session.entitlementsToken
-			}
 		
 		self.cleanStack = Protolayer
-			.urlSession(.init(configuration: .ephemeral))
+			.urlSession(.init(configuration: .ephemeral <- {
+				$0.timeoutIntervalForRequest = 20
+				$0.timeoutIntervalForResource = 60
+			}))
 #if DEBUG
 			.printExchanges()
 #endif
@@ -82,19 +83,55 @@ public struct ValorantClient {
 	func send<R: ValorantRequest>(_ request: R) async throws -> R.Response {
 		let resolvedVersion = await resolveClientVersion()
 		
-		let urlRequest = try request.urlRequest(for: location) <- {
+		let baseRequest = try request.urlRequest(for: location) <- {
 			$0.headers.clientVersion = resolvedVersion
 			$0.headers.clientPlatform = Self.encodedPlatformInfo
 		}
 		
-		let response = try await clientStack.send(urlRequest)
+		let maxRateLimitRetries = 2
+		var rateLimitAttempt = 0
+		var didRefreshToken = false
 		
-		let code = response.httpMetadata!.statusCode
-		guard (200..<300).contains(code) else {
-			throw APIError(statusCode: code, response: response)
+		while true {
+			try Task.checkCancellation()
+			let creds = try await sessionHandler.getAuthCredentials()
+			let urlRequest = baseRequest <- {
+				$0.headers.authorization = creds.accessToken.encoded
+				$0.headers.entitlementsToken = creds.entitlementsToken
+			}
+			
+			let response = try await clientStack.send(urlRequest)
+			let code = response.httpMetadata?.statusCode ?? 0
+			if (200..<300).contains(code) {
+				return try request.decodeResponse(from: response)
+			}
+			
+			let apiError = APIError(statusCode: code, response: response)
+			switch apiError {
+			case .rateLimited(let retryAfter):
+				if rateLimitAttempt < maxRateLimitRetries, (retryAfter ?? 0) <= 10 {
+					rateLimitAttempt += 1
+					let delay: TimeInterval
+					if let retryAfter {
+						delay = min(max(Double(retryAfter), 0.5), 10.0) + Double.random(in: 0.05...0.35)
+					} else {
+						delay = (rateLimitAttempt == 1 ? 1.5 : 3.5) + Double.random(in: 0.1...0.5)
+					}
+					try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+					continue
+				}
+				throw apiError
+			case .unauthorized, .tokenFailure:
+				if !didRefreshToken {
+					didRefreshToken = true
+					_ = try await sessionHandler.forceRefreshAccessToken(ifMatching: creds.accessToken.token)
+					continue
+				}
+				throw apiError
+			default:
+				throw apiError
+			}
 		}
-		
-		return try request.decodeResponse(from: response)
 	}
 	
 	func sendWithPlayerPreferencesAuth<R: ValorantRequest>(_ request: R) async throws -> R.Response {
@@ -171,23 +208,13 @@ public struct ValorantClient {
 	}
 	
 	/// Fetches the Riot Player Assertion Service (PAS) JWT used to authenticate XMPP chat connections.
-	public func getChatPASToken() async throws -> String {
-		let accessToken = try await sessionHandler.getAccessToken()
-		var request = URLRequest(url: URL(string: "https://riot-geo.pas.si.riotgames.com/pas/v1/service/chat")!)
-		request.httpMethod = "GET"
-		request.setValue(accessToken.encoded, forHTTPHeaderField: "Authorization")
-		let response = try await cleanStack.send(request)
-		if let http = response.httpMetadata, !(200..<300).contains(http.statusCode) {
-			throw APIError(statusCode: http.statusCode, response: response)
-		}
-		guard let raw = try? response.decodeString(using: .utf8),
-			  let token = Optional(raw.trimmingCharacters(in: .whitespacesAndNewlines)
-				.trimmingCharacters(in: CharacterSet(charactersIn: "\""))),
-			  !token.isEmpty
-		else {
-			throw APIError.unauthorized
-		}
-		return token
+	public func getChatPASToken(forceRefresh: Bool = false) async throws -> String {
+		try await sessionHandler.getChatPASToken(using: cleanStack, forceRefresh: forceRefresh)
+	}
+	
+	/// Invalidates any cached XMPP PAS JWT token so the next connection fetches a fresh one.
+	public func invalidateChatPASToken() async {
+		await sessionHandler.invalidateChatPASToken()
 	}
 	
 	/// Returns a log containing the last few exchanges with the server.
@@ -231,16 +258,30 @@ private final actor ClientVersionResolver {
 	private static let fallbackVersion = "release-13.10-shipping-18-5893614"
 	
 	private var cachedVersion: String?
+	private var inFlightTask: Task<String, Never>?
 	
 	func resolve() async -> String {
 		if let cachedVersion {
 			return cachedVersion
 		}
+		if let inFlightTask {
+			return await inFlightTask.value
+		}
+		let task = Task<String, Never> {
+			await self.fetchVersion()
+		}
+		inFlightTask = task
+		return await task.value
+	}
+	
+	private func fetchVersion() async -> String {
+		defer { inFlightTask = nil }
 		guard let url = URL(string: "https://valorant-api.com/v1/version") else {
 			return Self.fallbackVersion
 		}
 		do {
-			let (data, _) = try await URLSession.shared.data(from: url)
+			let request = URLRequest(url: url, timeoutInterval: 15)
+			let (data, _) = try await URLSession.shared.data(for: request)
 			let decoded = try JSONDecoder().decode(VersionResponse.self, from: data)
 			cachedVersion = decoded.data.riotClientVersion
 			return decoded.data.riotClientVersion

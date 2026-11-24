@@ -41,6 +41,19 @@ public struct RiotError: Decodable {
 
 extension APIError {
 	init(statusCode: Int, response: Protoresponse) {
+		if statusCode == 429 {
+			let retryAfter = response.httpMetadata?
+				.value(forHTTPHeaderField: "Retry-After")
+				.flatMap { raw -> Int? in
+					let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+					if let intVal = Int(trimmed) { return intVal }
+					if let doubleVal = Double(trimmed) { return Int(ceil(doubleVal)) }
+					return nil
+				}
+			self = .rateLimited(retryAfter: retryAfter)
+			return
+		}
+		
 		if let error = try? response.decodeJSON(as: RiotError.self) {
 			switch error.errorCode {
 			case "BAD_CLAIMS":
@@ -56,12 +69,6 @@ extension APIError {
 			switch statusCode {
 			case 401:
 				self = .unauthorized
-			case 429:
-				self = .rateLimited(
-					retryAfter: response.httpMetadata!
-						.value(forHTTPHeaderField: "Retry-After")
-						.flatMap(Int.init)
-				)
 			default:
 				self = .badResponseCode(statusCode, response, nil)
 			}

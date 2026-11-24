@@ -5,10 +5,26 @@ import HandyOperators
 struct AuthClient {
 	let baseURL = BaseURLs.authAPI
 	let urlSession: URLSession
+	private let ownsSession: Bool
 	var accessToken: AccessToken?
 	
 	init(urlSessionOverride: URLSession? = nil) async {
-		self.urlSession = urlSessionOverride ?? .init(configuration: .ephemeral)
+		if let urlSessionOverride {
+			self.urlSession = urlSessionOverride
+			self.ownsSession = false
+		} else {
+			let config = URLSessionConfiguration.ephemeral
+			config.timeoutIntervalForRequest = 20
+			config.timeoutIntervalForResource = 60
+			self.urlSession = URLSession(configuration: config)
+			self.ownsSession = true
+		}
+	}
+	
+	func invalidate() {
+		if ownsSession {
+			urlSession.finishTasksAndInvalidate()
+		}
 	}
 	
 	func cookies() -> [HTTPCookie] {
