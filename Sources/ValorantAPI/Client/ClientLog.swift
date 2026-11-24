@@ -3,6 +3,8 @@ import Protoquest
 import Collections
 
 public struct ClientLog {
+	public static let maxLoggedBodyBytes = 64 * 1024
+	
 	public let maxCount: Int
 	public private(set) var exchanges: Deque<Exchange> = []
 	
@@ -11,13 +13,34 @@ public struct ClientLog {
 	}
 	
 	public mutating func logExchange(request: URLRequest, result: Protoresult) {
-		let exchange = Exchange(request: request, result: result)
+		var loggedRequest = request
+		if let body = loggedRequest.httpBody, body.count > Self.maxLoggedBodyBytes {
+			loggedRequest.httpBody = Self.cappedBody(body)
+		}
+		
+		let loggedResult: Protoresult
+		if case .success(var response) = result, response.body.count > Self.maxLoggedBodyBytes {
+			response.body = Self.cappedBody(response.body)
+			loggedResult = .success(response)
+		} else {
+			loggedResult = result
+		}
+		
+		let exchange = Exchange(request: loggedRequest, result: loggedResult)
 		guard !exchange.wasCancelled else { return }
 		
 		if exchanges.count >= maxCount {
 			exchanges.removeFirst()
 		}
 		exchanges.append(exchange)
+	}
+	
+	private static func cappedBody(_ data: Data) -> Data {
+		guard data.count > maxLoggedBodyBytes else { return data }
+		var truncated = Data(data.prefix(maxLoggedBodyBytes))
+		let suffix = Data("\n… [truncated, original size: \(data.count) bytes]".utf8)
+		truncated.append(suffix)
+		return truncated
 	}
 	
 	public struct Exchange: Identifiable {
