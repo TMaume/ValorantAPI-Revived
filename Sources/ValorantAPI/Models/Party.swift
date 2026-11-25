@@ -16,7 +16,11 @@ public struct Party: Identifiable, Codable {
 	public var inviteCode: String
 	public var invites: [Invite]
 	public var requests: [JoinRequest]
-	// there's custom game data here too—handle that?
+	public var customGameData: CustomGameData?
+	
+	public var isCustomGame: Bool {
+		state == .customGameSetup || state == .customGameStarting
+	}
 	
 	public init(from decoder: Decoder) throws {
 		let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -31,6 +35,7 @@ public struct Party: Identifiable, Codable {
 		inviteCode = try container.decodeIfPresent(String.self, forKey: .inviteCode) ?? ""
 		invites = try container.decodeIfPresent([Invite].self, forKey: .invites) ?? []
 		requests = try container.decodeIfPresent([JoinRequest].self, forKey: .requests) ?? []
+		customGameData = try container.decodeIfPresent(CustomGameData.self, forKey: .customGameData)
 	}
 	
 	private enum CodingKeys: String, CodingKey {
@@ -45,12 +50,15 @@ public struct Party: Identifiable, Codable {
 		case inviteCode = "InviteCode"
 		case invites = "Invites"
 		case requests = "Requests"
+		case customGameData = "CustomGameData"
 	}
 	
 	public struct State: SimpleRawWrapper {
 		public static let `default` = Self("DEFAULT")
 		public static let inMatchmaking = Self("MATCHMAKING")
-		// TODO: in-game state?
+		public static let startingMatchmaking = Self("STARTING_MATCHMAKING")
+		public static let customGameSetup = Self("CUSTOM_GAME_SETUP")
+		public static let customGameStarting = Self("CUSTOM_GAME_STARTING")
 		
 		public var rawValue: String
 		
@@ -177,6 +185,246 @@ public struct Party: Identifiable, Codable {
 			case refreshedAt = "RefreshedAt"
 			case expiresIn = "ExpiresIn"
 		}
+	}
+	
+	public struct CustomGameData: Codable, Equatable {
+		public var settings: Settings
+		public var membership: Membership
+		public var maxPartySize: Int
+		public var autobalanceEnabled: Bool
+		public var autobalanceMinPlayers: Int
+		
+		public init(
+			settings: Settings = .init(),
+			membership: Membership = .init(),
+			maxPartySize: Int = 10,
+			autobalanceEnabled: Bool = false,
+			autobalanceMinPlayers: Int = 0
+		) {
+			self.settings = settings
+			self.membership = membership
+			self.maxPartySize = maxPartySize
+			self.autobalanceEnabled = autobalanceEnabled
+			self.autobalanceMinPlayers = autobalanceMinPlayers
+		}
+		
+		public init(from decoder: Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			settings = try container.decodeIfPresent(Settings.self, forKey: .settings) ?? .init()
+			membership = try container.decodeIfPresent(Membership.self, forKey: .membership) ?? .init()
+			maxPartySize = try container.decodeIfPresent(Int.self, forKey: .maxPartySize) ?? 0
+			autobalanceEnabled = try container.decodeIfPresent(Bool.self, forKey: .autobalanceEnabled) ?? false
+			autobalanceMinPlayers = try container.decodeIfPresent(Int.self, forKey: .autobalanceMinPlayers) ?? 0
+		}
+		
+		private enum CodingKeys: String, CodingKey {
+			case settings = "Settings"
+			case membership = "Membership"
+			case maxPartySize = "MaxPartySize"
+			case autobalanceEnabled = "AutobalanceEnabled"
+			case autobalanceMinPlayers = "AutobalanceMinPlayers"
+		}
+		
+		public struct Settings: Codable, Equatable {
+			public var map: String
+			public var mode: String
+			public var useBots: Bool
+			public var gamePod: String
+			public var gameRules: GameRules?
+			
+			public init(
+				map: String = "/Game/Maps/Ascent/Ascent",
+				mode: String = "/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+				useBots: Bool = false,
+				gamePod: String = "",
+				gameRules: GameRules? = .init()
+			) {
+				self.map = map
+				self.mode = mode
+				self.useBots = useBots
+				self.gamePod = gamePod
+				self.gameRules = gameRules
+			}
+			
+			public init(from decoder: Decoder) throws {
+				let container = try decoder.container(keyedBy: CodingKeys.self)
+				map = try container.decodeIfPresent(String.self, forKey: .map) ?? ""
+				mode = try container.decodeIfPresent(String.self, forKey: .mode) ?? ""
+				useBots = try container.decodeIfPresent(Bool.self, forKey: .useBots) ?? false
+				gamePod = try container.decodeIfPresent(String.self, forKey: .gamePod) ?? ""
+				gameRules = try container.decodeIfPresent(GameRules.self, forKey: .gameRules)
+			}
+			
+			private enum CodingKeys: String, CodingKey {
+				case map = "Map"
+				case mode = "Mode"
+				case useBots = "UseBots"
+				case gamePod = "GamePod"
+				case gameRules = "GameRules"
+			}
+		}
+		
+		public struct GameRules: Codable, Equatable {
+			public var allowGameModifiers: String?
+			public var isOvertimeWinByTwo: String?
+			public var playOutAllRounds: String?
+			public var skipMatchHistory: String?
+			public var tournamentMode: String?
+			
+			public var allowCheats: Bool {
+				get { allowGameModifiers == "true" }
+				set { allowGameModifiers = newValue ? "true" : "false" }
+			}
+			
+			public var overtimeWinByTwo: Bool {
+				get { isOvertimeWinByTwo == "true" }
+				set { isOvertimeWinByTwo = newValue ? "true" : "false" }
+			}
+			
+			public var playOutAllRoundsEnabled: Bool {
+				get { playOutAllRounds == "true" }
+				set { playOutAllRounds = newValue ? "true" : "false" }
+			}
+			
+			public var hideMatchHistory: Bool {
+				get { skipMatchHistory == "true" }
+				set { skipMatchHistory = newValue ? "true" : "false" }
+			}
+			
+			public var tournamentModeEnabled: Bool {
+				get { tournamentMode == "true" }
+				set { tournamentMode = newValue ? "true" : "false" }
+			}
+			
+			public init(
+				allowCheats: Bool = false,
+				overtimeWinByTwo: Bool = false,
+				playOutAllRounds: Bool = false,
+				hideMatchHistory: Bool = false,
+				tournamentMode: Bool = false
+			) {
+				self.allowGameModifiers = allowCheats ? "true" : "false"
+				self.isOvertimeWinByTwo = overtimeWinByTwo ? "true" : "false"
+				self.playOutAllRounds = playOutAllRounds ? "true" : "false"
+				self.skipMatchHistory = hideMatchHistory ? "true" : "false"
+				self.tournamentMode = tournamentMode ? "true" : "false"
+			}
+			
+			public init(from decoder: Decoder) throws {
+				let container = try decoder.container(keyedBy: CodingKeys.self)
+				func decodeFlag(_ key: CodingKeys) -> String? {
+					if let str = try? container.decodeIfPresent(String.self, forKey: key) {
+						return str
+					}
+					if let boolVal = try? container.decodeIfPresent(Bool.self, forKey: key) {
+						return boolVal ? "true" : "false"
+					}
+					return nil
+				}
+				allowGameModifiers = decodeFlag(.allowGameModifiers)
+				isOvertimeWinByTwo = decodeFlag(.isOvertimeWinByTwo)
+				playOutAllRounds = decodeFlag(.playOutAllRounds)
+				skipMatchHistory = decodeFlag(.skipMatchHistory)
+				tournamentMode = decodeFlag(.tournamentMode)
+			}
+			
+			private enum CodingKeys: String, CodingKey {
+				case allowGameModifiers = "AllowGameModifiers"
+				case isOvertimeWinByTwo = "IsOvertimeWinByTwo"
+				case playOutAllRounds = "PlayOutAllRounds"
+				case skipMatchHistory = "SkipMatchHistory"
+				case tournamentMode = "TournamentMode"
+			}
+		}
+		
+		public struct Membership: Codable, Equatable {
+			public var teamOne: [TeamMember]
+			public var teamTwo: [TeamMember]
+			public var teamSpectate: [TeamMember]
+			public var teamOneCoaches: [TeamMember]
+			public var teamTwoCoaches: [TeamMember]
+			
+			public init(
+				teamOne: [TeamMember] = [],
+				teamTwo: [TeamMember] = [],
+				teamSpectate: [TeamMember] = [],
+				teamOneCoaches: [TeamMember] = [],
+				teamTwoCoaches: [TeamMember] = []
+			) {
+				self.teamOne = teamOne
+				self.teamTwo = teamTwo
+				self.teamSpectate = teamSpectate
+				self.teamOneCoaches = teamOneCoaches
+				self.teamTwoCoaches = teamTwoCoaches
+			}
+			
+			public init(from decoder: Decoder) throws {
+				let container = try decoder.container(keyedBy: CodingKeys.self)
+				teamOne = try container.decodeIfPresent([TeamMember].self, forKey: .teamOne) ?? []
+				teamTwo = try container.decodeIfPresent([TeamMember].self, forKey: .teamTwo) ?? []
+				teamSpectate = try container.decodeIfPresent([TeamMember].self, forKey: .teamSpectate) ?? []
+				teamOneCoaches = try container.decodeIfPresent([TeamMember].self, forKey: .teamOneCoaches) ?? []
+				teamTwoCoaches = try container.decodeIfPresent([TeamMember].self, forKey: .teamTwoCoaches) ?? []
+			}
+			
+			public func team(for playerID: Player.ID) -> CustomGameTeam? {
+				if teamOne.contains(where: { $0.subject == playerID }) { return .teamOne }
+				if teamTwo.contains(where: { $0.subject == playerID }) { return .teamTwo }
+				if teamSpectate.contains(where: { $0.subject == playerID }) { return .spectate }
+				if teamOneCoaches.contains(where: { $0.subject == playerID }) { return .teamOneCoaches }
+				if teamTwoCoaches.contains(where: { $0.subject == playerID }) { return .teamTwoCoaches }
+				return nil
+			}
+			
+			private enum CodingKeys: String, CodingKey {
+				case teamOne
+				case teamTwo
+				case teamSpectate
+				case teamOneCoaches
+				case teamTwoCoaches
+			}
+			
+			public struct TeamMember: Codable, Equatable, Hashable {
+				public var subject: Player.ID
+				
+				public init(subject: Player.ID) {
+					self.subject = subject
+				}
+				
+				private enum CodingKeys: String, CodingKey {
+					case subject = "Subject"
+				}
+			}
+		}
+	}
+}
+
+public enum CustomGameTeam: String, CaseIterable, Codable, Hashable, Identifiable {
+	case teamOne = "TeamOne"
+	case teamTwo = "TeamTwo"
+	case spectate = "TeamSpectate"
+	case teamOneCoaches = "TeamOneCoaches"
+	case teamTwoCoaches = "TeamTwoCoaches"
+	
+	public var id: String { rawValue }
+}
+
+public struct CustomGameConfigs: Codable {
+	public var enabled: Bool
+	public var enabledMaps: [String]
+	public var enabledModes: [String]
+	
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+		enabledMaps = try container.decodeIfPresent([String].self, forKey: .enabledMaps) ?? []
+		enabledModes = try container.decodeIfPresent([String].self, forKey: .enabledModes) ?? []
+	}
+	
+	private enum CodingKeys: String, CodingKey {
+		case enabled = "Enabled"
+		case enabledMaps = "EnabledMaps"
+		case enabledModes = "EnabledModes"
 	}
 }
 

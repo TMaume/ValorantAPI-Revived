@@ -104,8 +104,111 @@ extension ValorantClient {
 		try await send(StartSoloExperienceRequest(playerID: userID))
 	}
 	
+	public func getCustomGameConfigs() async throws -> CustomGameConfigs {
+		try await send(CustomGameConfigsRequest())
+	}
+	
+	public func makeCustomGame(in party: Party.ID) async throws -> Party {
+		try await send(MakeCustomGameRequest(partyID: party))
+	}
+	
+	public func makeDefaultQueue(_ queueID: QueueID = .unrated, in party: Party.ID) async throws -> Party {
+		var lastError: Error?
+		var lastReturnedState: String?
+		
+		func tryStep(_ attempt: () async throws -> Party) async -> Party? {
+			do {
+				let updated = try await attempt()
+				lastReturnedState = updated.state.rawValue
+				return updated.isCustomGame ? nil : updated
+			} catch {
+				lastError = error
+				return nil
+			}
+		}
+		
+		if let updated = await tryStep({ try await self.changeQueue(to: queueID, in: party) }) {
+			return updated
+		}
+		if let updated = await tryStep({ try await self.send(MakeDefaultQueueRequest(partyID: party, queueID: queueID)) }) {
+			return updated
+		}
+		if let updated = await tryStep({ try await self.send(MakeDefaultQueueBodyRequest(partyID: party, queueID: queueID)) }) {
+			return updated
+		}
+		if let updated = await tryStep({ try await self.send(MakeDefaultQueuePathRequest(partyID: party, queueID: queueID)) }) {
+			return updated
+		}
+		if let updated = await tryStep({
+			let bareUpdated = try await self.send(MakeDefaultBareRequest(partyID: party))
+			guard !bareUpdated.isCustomGame else { return bareUpdated }
+			return (try? await self.changeQueue(to: queueID, in: party)) ?? bareUpdated
+		}) {
+			return updated
+		}
+		if let updated = await tryStep({ try await self.send(ChangeQueueLowercaseRequest(partyID: party, queueID: queueID)) }) {
+			return updated
+		}
+		
+		if let lastError {
+			throw lastError
+		}
+		throw NSError(
+			domain: "ValorantAPI",
+			code: 400,
+			userInfo: [
+				NSLocalizedDescriptionKey: "Unable to exit Custom Game (party state remained \(lastReturnedState ?? "CUSTOM_GAME_SETUP"))."
+			]
+		)
+	}
+	
+	public func setCustomGameSettings(_ settings: Party.CustomGameData.Settings, in party: Party.ID) async throws -> Party {
+		try await send(SetCustomGameSettingsRequest(partyID: party, settings: settings))
+	}
+	
+	public func changeCustomGameTeam(player: Player.ID, to team: CustomGameTeam, in party: Party.ID) async throws -> Party {
+		try await send(ChangeCustomGameTeamRequest(partyID: party, team: team, playerToPutOnTeam: player))
+	}
+	
+	public func balanceCustomGameTeams(in party: Party.ID) async throws -> Party {
+		try await send(BalanceCustomGameTeamsRequest(partyID: party))
+	}
+	
+	public func startCustomGame(in party: Party.ID) async throws -> Party {
+		try await send(StartCustomGameRequest(partyID: party))
+	}
+	
+	/// Launches Practice Range safely, converting the party into custom-game state first to satisfy Riot's `NOT_A_CUSTOM_GAME` guard on `startsoloexperience`.
+	public func startPracticeRange(in partyID: Party.ID, preferredGamePod: String? = nil) async throws {
+		let customParty = try await makeCustomGame(in: partyID)
+		do {
+			try await startSoloExperience()
+		} catch {
+			let bestPod = (preferredGamePod?.isEmpty == false ? preferredGamePod : nil)
+				?? customParty.members.first(where: { $0.id == userID })?.pings.min(by: { $0.ping < $1.ping })?.serverID
+				?? customParty.customGameData?.settings.gamePod
+				?? ""
+			let rangeMap = (try? await getCustomGameConfigs().enabledMaps.first {
+				$0.localizedCaseInsensitiveContains("Range") || $0.localizedCaseInsensitiveContains("Poveglia")
+			}) ?? "/Game/Maps/PovegliaV2/RangeV2"
+			let settings = Party.CustomGameData.Settings(
+				map: rangeMap,
+				mode: "/Game/GameModes/ShootingRange/ShootingRangeGameMode.ShootingRangeGameMode_C",
+				useBots: false,
+				gamePod: bestPod,
+				gameRules: .init(allowCheats: true)
+			)
+			_ = try await setCustomGameSettings(settings, in: partyID)
+			_ = try await startCustomGame(in: partyID)
+		}
+	}
+	
 	public func getPartyMUCToken(for partyID: Party.ID) async throws -> String {
-		try await send(PartyMUCTokenRequest(partyID: partyID)).token
+		do {
+			return try await send(PartyChatTokenRequest(partyID: partyID)).token
+		} catch APIError.resourceNotFound, APIError.badResponseCode(404, _, _) {
+			return try await send(PartyMUCTokenRequest(partyID: partyID)).token
+		}
 	}
 }
 
@@ -366,12 +469,27 @@ private struct DeclineInviteRequest: JSONEncodingRequest, Encodable, StatusCodeR
 
 private struct StartSoloExperienceRequest: JSONEncodingRequest, Encodable, StatusCodeRequest, LiveGameRequest {
 	var playerID: Player.ID
+	var gameType = "ShootingRange"
+	var module = ""
 	
 	var path: String {
 		"/parties/v1/players/\(playerID)/startsoloexperience"
 	}
 	
-	private enum CodingKeys: CodingKey {}
+	private enum CodingKeys: String, CodingKey {
+		case gameType
+		case module
+	}
+}
+
+private struct PartyChatTokenRequest: GetJSONRequest, LiveGameRequest {
+	var partyID: Party.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/chattoken"
+	}
+	
+	typealias Response = MUCTokenResponse
 }
 
 private struct PartyMUCTokenRequest: GetJSONRequest, LiveGameRequest {
@@ -382,4 +500,151 @@ private struct PartyMUCTokenRequest: GetJSONRequest, LiveGameRequest {
 	}
 	
 	typealias Response = MUCTokenResponse
+}
+
+private struct CustomGameConfigsRequest: GetJSONRequest, LiveGameRequest {
+	var path: String {
+		"/parties/v1/parties/customgameconfigs"
+	}
+	
+	typealias Response = CustomGameConfigs
+}
+
+private struct MakeCustomGameRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/makecustomgame"
+	}
+	
+	private enum CodingKeys: CodingKey {}
+	
+	typealias Response = Party
+}
+
+private struct MakeDefaultQueueRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	var queueID: QueueID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/makedefault"
+	}
+	
+	var urlParams: [URLParameter] {
+		("queueID", queueID.rawValue)
+	}
+	
+	private enum CodingKeys: CodingKey {}
+	
+	typealias Response = Party
+}
+
+private struct MakeDefaultQueueBodyRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	var queueID: QueueID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/makedefault"
+	}
+	
+	private enum CodingKeys: String, CodingKey {
+		case queueID = "queueID"
+	}
+	
+	typealias Response = Party
+}
+
+private struct MakeDefaultQueuePathRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	var queueID: QueueID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/makedefault/\(encodePathSegment(queueID.rawValue))"
+	}
+	
+	private enum CodingKeys: CodingKey {}
+	
+	typealias Response = Party
+}
+
+private struct MakeDefaultBareRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/makedefault"
+	}
+	
+	private enum CodingKeys: CodingKey {}
+	
+	typealias Response = Party
+}
+
+private struct ChangeQueueLowercaseRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	var queueID: QueueID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/queue"
+	}
+	
+	private enum CodingKeys: String, CodingKey {
+		case queueID = "queueId"
+	}
+	
+	typealias Response = Party
+}
+
+private struct SetCustomGameSettingsRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	var settings: Party.CustomGameData.Settings
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/customgamesettings"
+	}
+	
+	func encode(to encoder: Encoder) throws {
+		try settings.encode(to: encoder)
+	}
+	
+	typealias Response = Party
+}
+
+private struct ChangeCustomGameTeamRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	var team: CustomGameTeam
+	var playerToPutOnTeam: Player.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/customgamemembership/\(team.rawValue)"
+	}
+	
+	private enum CodingKeys: String, CodingKey {
+		case playerToPutOnTeam
+	}
+	
+	typealias Response = Party
+}
+
+private struct BalanceCustomGameTeamsRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/balanceteams"
+	}
+	
+	private enum CodingKeys: CodingKey {}
+	
+	typealias Response = Party
+}
+
+private struct StartCustomGameRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/startcustomgame"
+	}
+	
+	private enum CodingKeys: CodingKey {}
+	
+	typealias Response = Party
 }
