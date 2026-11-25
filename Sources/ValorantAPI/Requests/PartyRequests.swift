@@ -113,45 +113,77 @@ extension ValorantClient {
 	}
 	
 	public func makeDefaultQueue(_ queueID: QueueID = .unrated, in party: Party.ID) async throws -> Party {
-		var lastError: Error?
+		var firstMakeDefaultError: Error?
 		var lastReturnedState: String?
 		
-		func tryStep(_ attempt: () async throws -> Party) async -> Party? {
+		func tryResolve(_ attempt: () async throws -> Party?) async -> Party? {
 			do {
-				let updated = try await attempt()
-				lastReturnedState = updated.state.rawValue
-				return updated.isCustomGame ? nil : updated
+				let decoded = try await attempt()
+				let resolved: Party
+				if let decoded {
+					resolved = decoded
+				} else {
+					resolved = try await self.getPartyInfo(for: party)
+				}
+				lastReturnedState = resolved.state.rawValue
+				return resolved.isCustomGame ? nil : resolved
 			} catch {
-				lastError = error
+				firstMakeDefaultError = firstMakeDefaultError ?? error
 				return nil
 			}
 		}
 		
-		if let updated = await tryStep({ try await self.changeQueue(to: queueID, in: party) }) {
-			return updated
-		}
-		if let updated = await tryStep({ try await self.send(MakeDefaultQueueRequest(partyID: party, queueID: queueID)) }) {
-			return updated
-		}
-		if let updated = await tryStep({ try await self.send(MakeDefaultQueueBodyRequest(partyID: party, queueID: queueID)) }) {
-			return updated
-		}
-		if let updated = await tryStep({ try await self.send(MakeDefaultQueuePathRequest(partyID: party, queueID: queueID)) }) {
-			return updated
-		}
-		if let updated = await tryStep({
-			let bareUpdated = try await self.send(MakeDefaultBareRequest(partyID: party))
-			guard !bareUpdated.isCustomGame else { return bareUpdated }
-			return (try? await self.changeQueue(to: queueID, in: party)) ?? bareUpdated
+		if let resolved = await tryResolve({
+			try await self.send(EmptyPostPartyRequest(
+				path: "/parties/v1/parties/\(party)/makedefault",
+				queryParams: [("queueID", queueID.rawValue)]
+			))
 		}) {
-			return updated
+			return resolved
 		}
-		if let updated = await tryStep({ try await self.send(ChangeQueueLowercaseRequest(partyID: party, queueID: queueID)) }) {
-			return updated
+		if let resolved = await tryResolve({
+			try await self.send(EmptyPostPartyRequest(
+				path: "/parties/v1/parties/\(party)/makedefault",
+				queryParams: [("queueId", queueID.rawValue)]
+			))
+		}) {
+			return resolved
+		}
+		if let resolved = await tryResolve({
+			try await self.send(MakeDefaultQueueRequest(partyID: party, queueID: queueID))
+		}) {
+			return resolved
+		}
+		if let resolved = await tryResolve({
+			try await self.send(EmptyPostPartyRequest(path: "/parties/v1/parties/\(party)/makedefault"))
+		}) {
+			return (try? await self.changeQueue(to: queueID, in: party)) ?? resolved
+		}
+		if let resolved = await tryResolve({
+			try await self.send(MakeDefaultQueueBodyRequest(partyID: party, queueID: queueID))
+		}) {
+			return resolved
+		}
+		if let resolved = await tryResolve({
+			try await self.send(EmptyPostPartyRequest(
+				path: "/parties/v1/parties/\(party)/makedefault/\(encodePathSegment(queueID.rawValue))"
+			))
+		}) {
+			return resolved
 		}
 		
-		if let lastError {
-			throw lastError
+		// Solo safety-net reset: Riot immediately assigns a fresh DEFAULT party when leaving solo.
+		let current = try? await getPartyInfo(for: party)
+		if current == nil || (current?.members.count ?? 0) <= 1 {
+			try await removePlayerFromParty(userID)
+			try? await Task.sleep(nanoseconds: 250_000_000)
+			if let fresh = try await getPartyInfo(), !fresh.isCustomGame {
+				return (try? await changeQueue(to: queueID, in: fresh.id)) ?? fresh
+			}
+		}
+		
+		if let firstMakeDefaultError {
+			throw firstMakeDefaultError
 		}
 		throw NSError(
 			domain: "ValorantAPI",
@@ -171,7 +203,14 @@ extension ValorantClient {
 	}
 	
 	public func balanceCustomGameTeams(in party: Party.ID) async throws -> Party {
-		try await send(BalanceCustomGameTeamsRequest(partyID: party))
+		do {
+			if let updated = try await send(EmptyPostPartyRequest(path: "/parties/v1/parties/\(party)/balance")) {
+				return updated
+			}
+			return try await getPartyInfo(for: party)
+		} catch APIError.resourceNotFound, APIError.badResponseCode(404, _, _) {
+			return try await send(BalanceCustomGameTeamsRequest(partyID: party))
+		}
 	}
 	
 	public func startCustomGame(in party: Party.ID) async throws -> Party {
@@ -203,12 +242,16 @@ extension ValorantClient {
 		}
 	}
 	
-	public func getPartyMUCToken(for partyID: Party.ID) async throws -> String {
+	public func getPartyMUCTokenResponse(for partyID: Party.ID) async throws -> MUCTokenResponse {
 		do {
-			return try await send(PartyChatTokenRequest(partyID: partyID)).token
+			return try await send(PartyMUCTokenRequest(partyID: partyID))
 		} catch APIError.resourceNotFound, APIError.badResponseCode(404, _, _) {
-			return try await send(PartyMUCTokenRequest(partyID: partyID)).token
+			return try await send(PartyChatTokenRequest(partyID: partyID))
 		}
+	}
+	
+	public func getPartyMUCToken(for partyID: Party.ID) async throws -> String {
+		try await getPartyMUCTokenResponse(for: partyID).token
 	}
 }
 
@@ -539,6 +582,23 @@ private struct MakeDefaultQueueRequest: JSONJSONRequest, Encodable, LiveGameRequ
 	typealias Response = Party
 }
 
+private struct EmptyPostPartyRequest: LiveGameRequest {
+	var path: String
+	var queryParams: [URLParameter] = []
+	
+	var httpMethod: String { "POST" }
+	var urlParams: [URLParameter] { queryParams }
+	
+	func encode(to rawRequest: inout URLRequest) throws {}
+	
+	typealias Response = Party?
+	
+	func decodeResponse(from raw: Protoresponse) throws -> Party? {
+		guard !raw.body.isEmpty else { return nil }
+		return try? ValorantClient.responseDecoder.decode(Party.self, from: raw.body)
+	}
+}
+
 private struct MakeDefaultQueueBodyRequest: JSONJSONRequest, Encodable, LiveGameRequest {
 	var partyID: Party.ID
 	var queueID: QueueID
@@ -549,46 +609,6 @@ private struct MakeDefaultQueueBodyRequest: JSONJSONRequest, Encodable, LiveGame
 	
 	private enum CodingKeys: String, CodingKey {
 		case queueID = "queueID"
-	}
-	
-	typealias Response = Party
-}
-
-private struct MakeDefaultQueuePathRequest: JSONJSONRequest, Encodable, LiveGameRequest {
-	var partyID: Party.ID
-	var queueID: QueueID
-	
-	var path: String {
-		"/parties/v1/parties/\(partyID)/makedefault/\(encodePathSegment(queueID.rawValue))"
-	}
-	
-	private enum CodingKeys: CodingKey {}
-	
-	typealias Response = Party
-}
-
-private struct MakeDefaultBareRequest: JSONJSONRequest, Encodable, LiveGameRequest {
-	var partyID: Party.ID
-	
-	var path: String {
-		"/parties/v1/parties/\(partyID)/makedefault"
-	}
-	
-	private enum CodingKeys: CodingKey {}
-	
-	typealias Response = Party
-}
-
-private struct ChangeQueueLowercaseRequest: JSONJSONRequest, Encodable, LiveGameRequest {
-	var partyID: Party.ID
-	var queueID: QueueID
-	
-	var path: String {
-		"/parties/v1/parties/\(partyID)/queue"
-	}
-	
-	private enum CodingKeys: String, CodingKey {
-		case queueID = "queueId"
 	}
 	
 	typealias Response = Party

@@ -19,7 +19,7 @@ public struct Party: Identifiable, Codable {
 	public var customGameData: CustomGameData?
 	
 	public var isCustomGame: Bool {
-		state == .customGameSetup || state == .customGameStarting
+		state == .customGameSetup || state == .customGameStarting || state == .customGame
 	}
 	
 	public init(from decoder: Decoder) throws {
@@ -57,6 +57,7 @@ public struct Party: Identifiable, Codable {
 		public static let `default` = Self("DEFAULT")
 		public static let inMatchmaking = Self("MATCHMAKING")
 		public static let startingMatchmaking = Self("STARTING_MATCHMAKING")
+		public static let customGame = Self("CUSTOM_GAME")
 		public static let customGameSetup = Self("CUSTOM_GAME_SETUP")
 		public static let customGameStarting = Self("CUSTOM_GAME_STARTING")
 		
@@ -425,6 +426,54 @@ public struct CustomGameConfigs: Codable {
 		case enabled = "Enabled"
 		case enabledMaps = "EnabledMaps"
 		case enabledModes = "EnabledModes"
+	}
+}
+
+public extension CustomGameConfigs {
+	enum ModeCategory {
+		case standard
+		case teamDeathmatch
+		case skirmish
+		case shootingRange
+		
+		public init(modePath: String) {
+			let lower = modePath.lowercased()
+			if lower.contains("hurm") {
+				self = .teamDeathmatch
+			} else if lower.contains("skirmish") {
+				self = .skirmish
+			} else if lower.contains("shootingrange") {
+				self = .shootingRange
+			} else {
+				self = .standard
+			}
+		}
+		
+		public func accepts(mapPath: String) -> Bool {
+			let lower = mapPath.lowercased()
+			if lower.contains("npe") || lower.contains("tutorial") {
+				return false
+			}
+			switch self {
+			case .teamDeathmatch:
+				return lower.contains("/hurm/")
+			case .skirmish:
+				return lower.contains("/skirmish/")
+			case .shootingRange:
+				return lower.contains("poveglia") || lower.contains("range")
+			case .standard:
+				return !lower.contains("/hurm/")
+					&& !lower.contains("/skirmish/")
+					&& !lower.contains("poveglia")
+					&& !lower.contains("range")
+					&& !lower.contains("gauntlet")
+			}
+		}
+	}
+	
+	func validMaps(forMode modePath: String) -> [String] {
+		let category = ModeCategory(modePath: modePath)
+		return enabledMaps.filter { category.accepts(mapPath: $0) }
 	}
 }
 

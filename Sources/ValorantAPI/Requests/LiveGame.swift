@@ -59,27 +59,44 @@ extension ValorantClient {
 		try await send(DisassociatePlayerRequest(playerID: userID, matchID: matchID))
 	}
 	
+	/// Fetches the XMPP MUC password/token (and optional room JID) for pregame team chat.
+	public func getPregameChatTokenResponse(for matchID: Match.ID) async throws -> MUCTokenResponse {
+		try await send(PregameChatTokenRequest(matchID: matchID))
+	}
+	
 	/// Fetches the XMPP MUC password/token for pregame team chat.
 	public func getPregameChatToken(for matchID: Match.ID) async throws -> String {
-		try await send(PregameChatTokenRequest(matchID: matchID)).token
+		try await getPregameChatTokenResponse(for: matchID).token
+	}
+	
+	/// Fetches the XMPP MUC password/token (and optional room JID) for core-game team chat.
+	public func getCoreGameTeamChatTokenResponse(for matchID: Match.ID) async throws -> MUCTokenResponse {
+		try await send(CoreGameTeamChatTokenRequest(matchID: matchID))
 	}
 	
 	/// Fetches the XMPP MUC password/token for core-game team chat.
 	public func getCoreGameTeamChatToken(for matchID: Match.ID) async throws -> String {
-		try await send(CoreGameTeamChatTokenRequest(matchID: matchID)).token
+		try await getCoreGameTeamChatTokenResponse(for: matchID).token
+	}
+	
+	/// Fetches the XMPP MUC password/token (and optional room JID) for core-game all chat.
+	public func getCoreGameAllChatTokenResponse(for matchID: Match.ID) async throws -> MUCTokenResponse {
+		try await send(CoreGameAllChatTokenRequest(matchID: matchID))
 	}
 	
 	/// Fetches the XMPP MUC password/token for core-game all chat.
 	public func getCoreGameAllChatToken(for matchID: Match.ID) async throws -> String {
-		try await send(CoreGameAllChatTokenRequest(matchID: matchID)).token
+		try await getCoreGameAllChatTokenResponse(for: matchID).token
 	}
 }
 
 public struct MUCTokenResponse: Codable {
 	public var token: String
+	public var room: String?
 	
-	public init(token: String) {
+	public init(token: String, room: String? = nil) {
 		self.token = token
+		self.room = room
 	}
 	
 	public init(from decoder: Decoder) throws {
@@ -89,16 +106,24 @@ public struct MUCTokenResponse: Codable {
 		} else {
 			self.token = try container.decodeIfPresent(String.self, forKey: .lowercaseToken) ?? ""
 		}
+		if let uppercaseRoom = try container.decodeIfPresent(String.self, forKey: .room) {
+			self.room = uppercaseRoom
+		} else {
+			self.room = try container.decodeIfPresent(String.self, forKey: .lowercaseRoom)
+		}
 	}
 	
 	public func encode(to encoder: Encoder) throws {
 		var container = encoder.container(keyedBy: CodingKeys.self)
 		try container.encode(token, forKey: .token)
+		try container.encodeIfPresent(room, forKey: .room)
 	}
 	
 	private enum CodingKeys: String, CodingKey {
 		case token = "Token"
 		case lowercaseToken = "token"
+		case room = "Room"
+		case lowercaseRoom = "room"
 	}
 }
 

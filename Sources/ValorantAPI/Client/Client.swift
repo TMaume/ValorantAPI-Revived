@@ -192,6 +192,40 @@ public struct ValorantClient {
 		return try request.decodeResponse(from: response)
 	}
 	
+	func sendWithRiotClientFallback<R: ValorantRequest>(_ request: R) async throws -> R.Response {
+		do {
+			return try await send(request)
+		} catch {
+			let shouldFallback: Bool
+			switch error {
+			case APIError.unauthorized, APIError.resourceNotFound:
+				shouldFallback = true
+			case APIError.badResponseCode(let code, _, _):
+				shouldFallback = [401, 403, 404, 500].contains(code)
+			default:
+				shouldFallback = false
+			}
+			guard shouldFallback,
+			      let riotClientAuth = try? await sessionHandler.getPlayerPreferencesAuth(client: .riotClient, forceRefresh: false)
+			else {
+				throw error
+			}
+			let resolvedVersion = await resolveClientVersion()
+			let urlRequest = try request.urlRequest(for: location) <- {
+				$0.headers.authorization = riotClientAuth.authorization
+				$0.headers.entitlementsToken = riotClientAuth.entitlementsToken
+				$0.headers.clientVersion = resolvedVersion
+				$0.headers.clientPlatform = Self.encodedPlatformInfo
+			}
+			let response = try await cleanStack.send(urlRequest)
+			let code = response.httpMetadata?.statusCode ?? 0
+			guard (200..<300).contains(code) else {
+				throw APIError(statusCode: code, response: response)
+			}
+			return try request.decodeResponse(from: response)
+		}
+	}
+	
 	/// Returns the current session.
 	public func getSession() async -> APISession {
 		await sessionHandler.session
