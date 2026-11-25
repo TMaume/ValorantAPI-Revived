@@ -18,9 +18,15 @@ public struct LivePregameInfo: Codable, Identifiable, BasicMatchInfo {
 	public var provisioningFlowID: ProvisioningFlow.ID
 	public var isRanked: Bool
 	public var nanosecondsRemainingInPhase: Int
+	public var gamePodID: String?
+	public var mucName: String?
 	
 	public var timeRemainingInPhase: TimeInterval {
 		TimeInterval(nanosecondsRemainingInPhase) / 1e9
+	}
+	
+	public var isShootingRange: Bool {
+		provisioningFlowID == .shootingRange || modeID == .practice || mapID.isShootingRange
 	}
 	
 	private enum CodingKeys: String, CodingKey {
@@ -37,6 +43,8 @@ public struct LivePregameInfo: Codable, Identifiable, BasicMatchInfo {
 		case provisioningFlowID = "ProvisioningFlowID"
 		case isRanked = "IsRanked"
 		case nanosecondsRemainingInPhase = "PhaseTimeRemainingNS"
+		case gamePodID = "GamePodID"
+		case mucName = "MUCName"
 	}
 	
 	public struct State: SimpleRawWrapper {

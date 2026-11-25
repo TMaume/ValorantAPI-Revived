@@ -22,6 +22,17 @@ public struct MapID: SimpleRawWrapper {
 	public static let fracture = mapID("Canyon")
 	public static let gauntlet = mapID("AbilityDraft")
 	public static let range = mapID("Range", group: "Poveglia")
+	public static let rangeV2 = mapID("RangeV2", group: "PovegliaV2")
+	
+	public var isShootingRange: Bool {
+		if self == .range || self == .rangeV2 {
+			return true
+		}
+		let lower = rawValue.lowercased()
+		return lower.contains("shootingrange")
+			|| lower.contains("/range")
+			|| lower.contains("poveglia")
+	}
 	
 	private static func mapID(_ key: String, group: String? = nil) -> Self {
 		Self("/Game/Maps/\(group ?? key)/\(key)")

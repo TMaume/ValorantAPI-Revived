@@ -53,6 +53,11 @@ extension ValorantClient {
 	public func quitPregameMatch(_ matchID: Match.ID) async throws {
 		try await send(QuitPregameMatchRequest(matchID: matchID))
 	}
+	
+	/// Disassociates the current player from an in-progress live game (e.g. leaving the Range or custom game).
+	public func disassociateFromLiveGame(_ matchID: Match.ID) async throws {
+		try await send(DisassociatePlayerRequest(playerID: userID, matchID: matchID))
+	}
 }
 
 private struct LivePlayerInfoRequest: GetJSONRequest, LiveGameRequest {
@@ -104,6 +109,19 @@ private struct QuitPregameMatchRequest: StatusCodeRequest, LiveGameRequest {
 	
 	var path: String {
 		"/pregame/v1/matches/\(matchID)/quit"
+	}
+	
+	func encode(to rawRequest: inout URLRequest) {}
+}
+
+private struct DisassociatePlayerRequest: StatusCodeRequest, LiveGameRequest {
+	var httpMethod: String { "POST" }
+	
+	var playerID: Player.ID
+	var matchID: Match.ID
+	
+	var path: String {
+		"/core-game/v1/players/\(playerID)/disassociate/\(matchID)"
 	}
 	
 	func encode(to rawRequest: inout URLRequest) {}

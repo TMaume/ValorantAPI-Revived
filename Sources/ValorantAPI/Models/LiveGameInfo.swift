@@ -12,6 +12,9 @@ public struct LiveGameInfo: Codable, BasicMatchInfo {
 	public var provisioningFlowID: ProvisioningFlow.ID
 	public var matchmakingData: MatchmakingData?
 	public var isReconnectable: Bool
+	public var gamePodID: String?
+	public var allMUCName: String?
+	public var teamMUCName: String?
 	
 	public var queueID: QueueID? {
 		matchmakingData?.queueID
@@ -19,6 +22,10 @@ public struct LiveGameInfo: Codable, BasicMatchInfo {
 	
 	public var isRanked: Bool {
 		matchmakingData?.isRanked ?? false
+	}
+	
+	public var isShootingRange: Bool {
+		provisioningFlowID == .shootingRange || modeID == .practice || mapID.isShootingRange
 	}
 	
 	private enum CodingKeys: String, CodingKey {
@@ -32,6 +39,9 @@ public struct LiveGameInfo: Codable, BasicMatchInfo {
 		case provisioningFlowID = "ProvisioningFlow"
 		case matchmakingData = "MatchmakingData"
 		case isReconnectable = "IsReconnectable"
+		case gamePodID = "GamePodID"
+		case allMUCName = "AllMUCName"
+		case teamMUCName = "TeamMUCName"
 	}
 	
 	public struct State: SimpleRawWrapper {
