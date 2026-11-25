@@ -103,6 +103,10 @@ extension ValorantClient {
 	public func startSoloExperience() async throws {
 		try await send(StartSoloExperienceRequest(playerID: userID))
 	}
+	
+	public func getPartyMUCToken(for partyID: Party.ID) async throws -> String {
+		try await send(PartyMUCTokenRequest(partyID: partyID)).token
+	}
 }
 
 private let pathSegmentAllowed: CharacterSet = {
@@ -368,4 +372,14 @@ private struct StartSoloExperienceRequest: JSONEncodingRequest, Encodable, Statu
 	}
 	
 	private enum CodingKeys: CodingKey {}
+}
+
+private struct PartyMUCTokenRequest: GetJSONRequest, LiveGameRequest {
+	var partyID: Party.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/muctoken"
+	}
+	
+	typealias Response = MUCTokenResponse
 }

@@ -58,6 +58,48 @@ extension ValorantClient {
 	public func disassociateFromLiveGame(_ matchID: Match.ID) async throws {
 		try await send(DisassociatePlayerRequest(playerID: userID, matchID: matchID))
 	}
+	
+	/// Fetches the XMPP MUC password/token for pregame team chat.
+	public func getPregameChatToken(for matchID: Match.ID) async throws -> String {
+		try await send(PregameChatTokenRequest(matchID: matchID)).token
+	}
+	
+	/// Fetches the XMPP MUC password/token for core-game team chat.
+	public func getCoreGameTeamChatToken(for matchID: Match.ID) async throws -> String {
+		try await send(CoreGameTeamChatTokenRequest(matchID: matchID)).token
+	}
+	
+	/// Fetches the XMPP MUC password/token for core-game all chat.
+	public func getCoreGameAllChatToken(for matchID: Match.ID) async throws -> String {
+		try await send(CoreGameAllChatTokenRequest(matchID: matchID)).token
+	}
+}
+
+public struct MUCTokenResponse: Codable {
+	public var token: String
+	
+	public init(token: String) {
+		self.token = token
+	}
+	
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		if let uppercase = try container.decodeIfPresent(String.self, forKey: .token) {
+			self.token = uppercase
+		} else {
+			self.token = try container.decodeIfPresent(String.self, forKey: .lowercaseToken) ?? ""
+		}
+	}
+	
+	public func encode(to encoder: Encoder) throws {
+		var container = encoder.container(keyedBy: CodingKeys.self)
+		try container.encode(token, forKey: .token)
+	}
+	
+	private enum CodingKeys: String, CodingKey {
+		case token = "Token"
+		case lowercaseToken = "token"
+	}
 }
 
 private struct LivePlayerInfoRequest: GetJSONRequest, LiveGameRequest {
@@ -125,6 +167,24 @@ private struct DisassociatePlayerRequest: StatusCodeRequest, LiveGameRequest {
 	}
 	
 	func encode(to rawRequest: inout URLRequest) {}
+}
+
+private struct PregameChatTokenRequest: GetJSONRequest, LiveGameRequest {
+	var matchID: Match.ID
+	var path: String { "/pregame/v1/matches/\(matchID)/chattoken" }
+	typealias Response = MUCTokenResponse
+}
+
+private struct CoreGameTeamChatTokenRequest: GetJSONRequest, LiveGameRequest {
+	var matchID: Match.ID
+	var path: String { "/core-game/v1/matches/\(matchID)/teamchatmuctoken" }
+	typealias Response = MUCTokenResponse
+}
+
+private struct CoreGameAllChatTokenRequest: GetJSONRequest, LiveGameRequest {
+	var matchID: Match.ID
+	var path: String { "/core-game/v1/matches/\(matchID)/allchatmuctoken" }
+	typealias Response = MUCTokenResponse
 }
 
 /// marks requests as needing a different base URL
