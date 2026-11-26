@@ -1,7 +1,7 @@
 import Foundation
 import ErgonomicCodable
 
-public struct Party: Identifiable, Codable {
+public struct Party: Identifiable, Codable, Equatable {
 	public typealias ID = ObjectID<Self, LowercaseUUID>
 	
 	public var id: ID
@@ -68,7 +68,7 @@ public struct Party: Identifiable, Codable {
 		}
 	}
 	
-	public struct Member: Identifiable, Codable {
+	public struct Member: Identifiable, Codable, Equatable {
 		public var id: Player.ID
 		public var identity: Player.Identity
 		public var isReady: Bool
@@ -117,7 +117,7 @@ public struct Party: Identifiable, Codable {
 		case closed = "CLOSED"
 	}
 	
-	public struct MatchmakingData: Codable {
+	public struct MatchmakingData: Codable, Equatable {
 		public var queueID: QueueID
 		public var preferredGamePods: [String]
 		/// RR penalty for skill disparity in Competitive
@@ -410,74 +410,236 @@ public enum CustomGameTeam: String, CaseIterable, Codable, Hashable, Identifiabl
 	public var id: String { rawValue }
 }
 
-public struct CustomGameConfigs: Codable {
+public struct CustomGameConfigs: Codable, Equatable {
+	public struct QueueConfig: Codable, Equatable {
+		public var queueID: String
+		public var enabled: Bool
+		public var mode: String
+		public var mapWeights: [String]
+		
+		public var mapPaths: [String] {
+			mapWeights.compactMap { entry in
+				let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+				guard !trimmed.isEmpty else { return nil }
+				if let colonIndex = trimmed.lastIndex(of: ":") {
+					let weightPart = trimmed[trimmed.index(after: colonIndex)...]
+						.trimmingCharacters(in: .whitespacesAndNewlines)
+					if Double(weightPart) != nil {
+						let prefix = trimmed[..<colonIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+						return prefix.isEmpty ? nil : prefix
+					}
+				}
+				return trimmed
+			}
+		}
+		
+		public init(
+			queueID: String = "",
+			enabled: Bool = false,
+			mode: String = "",
+			mapWeights: [String] = []
+		) {
+			self.queueID = queueID
+			self.enabled = enabled
+			self.mode = mode
+			self.mapWeights = mapWeights
+		}
+		
+		public init(from decoder: Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			queueID = try container.decodeIfPresent(String.self, forKey: .queueID) ?? ""
+			enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+			mode = try container.decodeIfPresent(String.self, forKey: .mode) ?? ""
+			mapWeights = try container.decodeIfPresent([String].self, forKey: .mapWeights) ?? []
+		}
+		
+		private enum CodingKeys: String, CodingKey {
+			case queueID = "QueueID"
+			case enabled = "Enabled"
+			case mode = "Mode"
+			case mapWeights = "MapWeights"
+		}
+	}
+	
 	public var enabled: Bool
 	public var enabledMaps: [String]
 	public var enabledModes: [String]
+	public var queues: [QueueConfig]
+	
+	public init(
+		enabled: Bool = true,
+		enabledMaps: [String] = [],
+		enabledModes: [String] = [],
+		queues: [QueueConfig] = []
+	) {
+		self.enabled = enabled
+		self.enabledMaps = enabledMaps
+		self.enabledModes = enabledModes
+		self.queues = queues
+	}
 	
 	public init(from decoder: Decoder) throws {
 		let container = try decoder.container(keyedBy: CodingKeys.self)
 		enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
 		enabledMaps = try container.decodeIfPresent([String].self, forKey: .enabledMaps) ?? []
 		enabledModes = try container.decodeIfPresent([String].self, forKey: .enabledModes) ?? []
+		queues = try container.decodeIfPresent([QueueConfig].self, forKey: .queues) ?? []
 	}
 	
 	private enum CodingKeys: String, CodingKey {
 		case enabled = "Enabled"
 		case enabledMaps = "EnabledMaps"
 		case enabledModes = "EnabledModes"
+		case queues = "Queues"
 	}
 }
 
 public extension CustomGameConfigs {
-	enum ModeCategory {
+	enum ModeCategory: Equatable {
 		case standard
 		case teamDeathmatch
 		case skirmish
+		case gauntlet
 		case shootingRange
+		case unknown(String)
 		
 		public init(modePath: String) {
 			let lower = modePath.lowercased()
-			if lower.contains("hurm") {
+			if lower.isEmpty {
+				self = .standard
+			} else if lower.contains("hurm") {
 				self = .teamDeathmatch
 			} else if lower.contains("skirmish") {
 				self = .skirmish
+			} else if lower.contains("abilitydraft") || lower.contains("gauntlet") {
+				self = .gauntlet
 			} else if lower.contains("shootingrange") {
 				self = .shootingRange
-			} else {
+			} else if lower.contains("bomb")
+				|| lower.contains("swiftplay")
+				|| lower.contains("deathmatch")
+				|| lower.contains("gungame")
+				|| lower.contains("oneforall")
+				|| lower.contains("snowball")
+				|| lower.contains("aros")
+				|| lower.contains("fortcollins")
+				|| lower.contains("dodgeball") {
 				self = .standard
+			} else {
+				self = .unknown(modePath)
 			}
 		}
 		
-		public func accepts(mapPath: String) -> Bool {
+		public static func isInternalOrTutorialMap(_ mapPath: String) -> Bool {
 			let lower = mapPath.lowercased()
-			if lower.contains("npe") || lower.contains("tutorial") {
-				return false
-			}
+			return lower.contains("/npe")
+				|| lower.contains("newplayerexperience")
+				|| lower.contains("tutorial")
+				|| lower.contains("/menu")
+				|| lower.contains("/init")
+		}
+		
+		public func accepts(mapPath: String) -> Bool {
+			guard !Self.isInternalOrTutorialMap(mapPath) else { return false }
+			let lower = mapPath.lowercased()
 			switch self {
 			case .teamDeathmatch:
 				return lower.contains("/hurm/")
 			case .skirmish:
-				return lower.contains("/skirmish/")
+				return lower.contains("/duel/") || lower.contains("skirmish")
+			case .gauntlet:
+				return lower.contains("/abilitydraft/") || lower.contains("gauntlet")
 			case .shootingRange:
-				return lower.contains("poveglia") || lower.contains("range")
+				return lower.contains("poveglia") || lower.contains("/range")
 			case .standard:
 				return !lower.contains("/hurm/")
-					&& !lower.contains("/skirmish/")
-					&& !lower.contains("poveglia")
-					&& !lower.contains("range")
+					&& !lower.contains("/duel/")
+					&& !lower.contains("skirmish")
+					&& !lower.contains("/abilitydraft/")
 					&& !lower.contains("gauntlet")
+					&& !lower.contains("poveglia")
+					&& !lower.contains("/range")
+			case .unknown:
+				return false
 			}
 		}
 	}
 	
-	func validMaps(forMode modePath: String) -> [String] {
+	func validMaps(
+		forMode modePath: String,
+		knownNonTacticalMapPaths: Set<String> = []
+	) -> [String] {
+		var seenLower = Set<String>()
+		let deduplicatedMaps = enabledMaps.filter { path in
+			let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+			guard !trimmed.isEmpty else { return false }
+			return seenLower.insert(trimmed.lowercased()).inserted
+		}
+		
 		let category = ModeCategory(modePath: modePath)
-		return enabledMaps.filter { category.accepts(mapPath: $0) }
+		let queueMapPathsLower = Set(
+			queues
+				.filter { !$0.mode.isEmpty && $0.mode.caseInsensitiveCompare(modePath) == .orderedSame }
+				.flatMap(\.mapPaths)
+				.map { $0.lowercased() }
+		)
+		
+		switch category {
+		case .teamDeathmatch, .skirmish, .gauntlet, .shootingRange:
+			return deduplicatedMaps.filter { path in
+				guard !ModeCategory.isInternalOrTutorialMap(path) else { return false }
+				return category.accepts(mapPath: path) || queueMapPathsLower.contains(path.lowercased())
+			}
+		case .standard:
+			var standardQueueMapsLower = Set<String>()
+			var specialQueueMapsLower = Set<String>()
+			for queue in queues where !queue.mode.isEmpty {
+				let queueCategory = ModeCategory(modePath: queue.mode)
+				for mapPath in queue.mapPaths {
+					let lowerMap = mapPath.lowercased()
+					if queueCategory == .standard {
+						standardQueueMapsLower.insert(lowerMap)
+					} else {
+						specialQueueMapsLower.insert(lowerMap)
+					}
+				}
+			}
+			let otherSpecialQueueMapPathsLower = specialQueueMapsLower.subtracting(standardQueueMapsLower)
+			return deduplicatedMaps.filter { path in
+				let lower = path.lowercased()
+				return category.accepts(mapPath: path)
+					&& !knownNonTacticalMapPaths.contains(lower)
+					&& !otherSpecialQueueMapPathsLower.contains(lower)
+			}
+		case .unknown:
+			guard !queueMapPathsLower.isEmpty else { return [] }
+			return deduplicatedMaps.filter { path in
+				!ModeCategory.isInternalOrTutorialMap(path) && queueMapPathsLower.contains(path.lowercased())
+			}
+		}
+	}
+	
+	func selectableModes() -> [String] {
+		var seenLower = Set<String>()
+		return enabledModes.filter { path in
+			let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+			guard !trimmed.isEmpty else { return false }
+			let lower = trimmed.lowercased()
+			guard !lower.contains("newplayerexperience"),
+				  !lower.contains("/npe"),
+				  !lower.contains("onboarding"),
+				  !lower.contains("exampleplayertestbot"),
+				  !lower.contains("bottrainingmatch"),
+				  !lower.contains("shootingrange")
+			else {
+				return false
+			}
+			return seenLower.insert(lower).inserted
+		}
 	}
 }
 
-public struct PartyPlayer: Codable {
+public struct PartyPlayer: Codable, Equatable {
 	public var subject: Player.ID
 	public var currentPartyID: Party.ID
 	public var requests: [Party.JoinRequest]

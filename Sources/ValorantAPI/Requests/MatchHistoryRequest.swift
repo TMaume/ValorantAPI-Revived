@@ -7,11 +7,12 @@ extension ValorantClient {
 	public func getMatchHistory(
 		userID: Player.ID? = nil,
 		queue: QueueID? = nil,
-		startIndex: Int = 0
+		startIndex: Int = 0,
+		count: Int = 20
 	) async throws -> [MatchHistoryEntry] {
 		try await send(MatchHistoryRequest(
 			userID: userID ?? self.userID,
-			startIndex: startIndex, endIndex: startIndex + 20,
+			startIndex: startIndex, endIndex: startIndex + max(1, count),
 			queue: queue
 		)).history
 	}

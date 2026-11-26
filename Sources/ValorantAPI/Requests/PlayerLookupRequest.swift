@@ -72,27 +72,27 @@ extension ValorantClient {
 		}
 		
 		var firstEmptyLocation: Location?
-		for candidate in candidateLocations {
-			try Task.checkCancellation()
+		var firstFatalError: Error?
+		
+		func probe(_ candidate: Location) async -> ProbeOutcome {
 			do {
-				let history = try await self.in(candidate).getMatchHistory(userID: user.id)
+				try Task.checkCancellation()
+				let history = try await self.in(candidate).getMatchHistory(userID: user.id, count: 1)
 				if !history.isEmpty {
-					return PlayerLookupResult(user: user, location: candidate, latestMatchID: history.first?.matchID)
+					return .found(candidate, history.first?.matchID)
 				}
-				if firstEmptyLocation == nil {
-					firstEmptyLocation = candidate
-				}
+				return .empty(candidate)
 			} catch is CancellationError {
-				throw CancellationError()
+				return .fatal(CancellationError())
 			} catch let apiError as APIError {
 				if apiError.recommendsReauthentication {
-					throw apiError
+					return .fatal(apiError)
 				}
 				switch apiError {
 				case .rateLimited, .scheduledDowntime:
-					throw apiError
+					return .fatal(apiError)
 				default:
-					continue
+					return .ignored
 				}
 			} catch let urlError as URLError {
 				switch urlError.code {
@@ -104,18 +104,88 @@ extension ValorantClient {
 					 .timedOut,
 					 .cannotFindHost,
 					 .dnsLookupFailed:
-					throw urlError
+					return .fatal(urlError)
 				default:
-					continue
+					return .ignored
 				}
+			} catch {
+				return .ignored
+			}
+		}
+		
+		if let primary = candidateLocations.first {
+			switch await probe(primary) {
+			case .found(let loc, let matchID):
+				return PlayerLookupResult(user: user, location: loc, latestMatchID: matchID)
+			case .empty(let loc):
+				firstEmptyLocation = loc
+			case .fatal(let error):
+				if error is CancellationError || (error as? APIError)?.recommendsReauthentication == true {
+					throw error
+				}
+				firstFatalError = error
+			case .ignored:
+				break
+			}
+		}
+		
+		let remaining = Array(candidateLocations.dropFirst())
+		if !remaining.isEmpty {
+			let result = await withTaskGroup(of: (Int, ProbeOutcome).self) { group -> (found: (Location, Match.ID?)?, emptyIndex: Int?, emptyLoc: Location?, fatal: Error?) in
+				for (offset, candidate) in remaining.enumerated() {
+					group.addTask {
+						(offset, await probe(candidate))
+					}
+				}
+				var bestEmptyIndex: Int?
+				var bestEmptyLocation: Location?
+				var fatalError: Error?
+				for await (offset, outcome) in group {
+					switch outcome {
+					case .found(let loc, let matchID):
+						group.cancelAll()
+						return ((loc, matchID), nil, nil, nil)
+					case .empty(let loc):
+						if bestEmptyIndex == nil || offset < bestEmptyIndex! {
+							bestEmptyIndex = offset
+							bestEmptyLocation = loc
+						}
+					case .fatal(let err):
+						if fatalError == nil {
+							fatalError = err
+						}
+					case .ignored:
+						break
+					}
+				}
+				return (nil, bestEmptyIndex, bestEmptyLocation, fatalError)
+			}
+			if let found = result.found {
+				return PlayerLookupResult(user: user, location: found.0, latestMatchID: found.1)
+			}
+			if firstEmptyLocation == nil, let emptyLoc = result.emptyLoc {
+				firstEmptyLocation = emptyLoc
+			}
+			if firstFatalError == nil, let fatal = result.fatal {
+				firstFatalError = fatal
 			}
 		}
 		
 		if let fallback = firstEmptyLocation {
 			return PlayerLookupResult(user: user, location: fallback, latestMatchID: nil)
 		}
+		if let firstFatalError {
+			throw firstFatalError
+		}
 		throw PlayerLookupError.noRegionFound(gameName: user.gameName, tagLine: user.tagLine)
 	}
+}
+
+private enum ProbeOutcome {
+	case found(Location, Match.ID?)
+	case empty(Location)
+	case fatal(Error)
+	case ignored
 }
 
 private struct PlayerLookupRequest: GetJSONRequest, ValorantRequest {

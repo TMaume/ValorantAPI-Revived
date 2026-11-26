@@ -92,7 +92,7 @@ public struct Player: Codable, Identifiable {
 		public var afkRounds: Double
 	}
 	
-	public struct Identity: Codable, Identifiable {
+	public struct Identity: Codable, Identifiable, Equatable {
 		public var id: Player.ID
 		public var cardID: PlayerCard.ID
 		public var titleID: PlayerTitle.ID

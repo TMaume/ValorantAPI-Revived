@@ -8,6 +8,17 @@ public struct ValorantClient {
 		.encode(PlatformInfo.supportedExample)
 		.base64EncodedString()
 	
+	private static let sharedClientSession = URLSession(configuration: .ephemeral <- {
+		$0.httpAdditionalHeaders = ["User-Agent": ""]
+		$0.timeoutIntervalForRequest = 20
+		$0.timeoutIntervalForResource = 60
+	})
+	
+	private static let sharedCleanSession = URLSession(configuration: .ephemeral <- {
+		$0.timeoutIntervalForRequest = 20
+		$0.timeoutIntervalForResource = 60
+	})
+	
 	#if DEBUG
 	/// A mocked client that's not actually signed in, for testing.
 	public static let mocked = ValorantClient(session: .mocked)
@@ -37,11 +48,7 @@ public struct ValorantClient {
 		let logger = self.logger
 		
 		self.clientStack = Protolayer
-			.urlSession(urlSessionOverride ?? .init(configuration: .ephemeral <- {
-				$0.httpAdditionalHeaders = ["User-Agent": ""]
-				$0.timeoutIntervalForRequest = 20
-				$0.timeoutIntervalForResource = 60
-			}))
+			.urlSession(urlSessionOverride ?? Self.sharedClientSession)
 #if DEBUG
 			.printExchanges()
 #endif
@@ -50,10 +57,7 @@ public struct ValorantClient {
 			}
 		
 		self.cleanStack = Protolayer
-			.urlSession(.init(configuration: .ephemeral <- {
-				$0.timeoutIntervalForRequest = 20
-				$0.timeoutIntervalForResource = 60
-			}))
+			.urlSession(Self.sharedCleanSession)
 #if DEBUG
 			.printExchanges()
 #endif
@@ -181,7 +185,7 @@ public struct ValorantClient {
 			response = try await sendVariants(with: riotClientAuth)
 		}
 		
-		let code = response.httpMetadata!.statusCode
+		let code = response.httpMetadata?.statusCode ?? 0
 		guard (200..<300).contains(code) else {
 			if code == 403 {
 				throw PlayerSettingsError.reauthRequired
@@ -190,40 +194,6 @@ public struct ValorantClient {
 		}
 		
 		return try request.decodeResponse(from: response)
-	}
-	
-	func sendWithRiotClientFallback<R: ValorantRequest>(_ request: R) async throws -> R.Response {
-		do {
-			return try await send(request)
-		} catch {
-			let shouldFallback: Bool
-			switch error {
-			case APIError.unauthorized, APIError.resourceNotFound:
-				shouldFallback = true
-			case APIError.badResponseCode(let code, _, _):
-				shouldFallback = [401, 403, 404, 500].contains(code)
-			default:
-				shouldFallback = false
-			}
-			guard shouldFallback,
-			      let riotClientAuth = try? await sessionHandler.getPlayerPreferencesAuth(client: .riotClient, forceRefresh: false)
-			else {
-				throw error
-			}
-			let resolvedVersion = await resolveClientVersion()
-			let urlRequest = try request.urlRequest(for: location) <- {
-				$0.headers.authorization = riotClientAuth.authorization
-				$0.headers.entitlementsToken = riotClientAuth.entitlementsToken
-				$0.headers.clientVersion = resolvedVersion
-				$0.headers.clientPlatform = Self.encodedPlatformInfo
-			}
-			let response = try await cleanStack.send(urlRequest)
-			let code = response.httpMetadata?.statusCode ?? 0
-			guard (200..<300).contains(code) else {
-				throw APIError(statusCode: code, response: response)
-			}
-			return try request.decodeResponse(from: response)
-		}
 	}
 	
 	/// Returns the current session.

@@ -116,7 +116,23 @@ extension ValorantClient {
 		var firstMakeDefaultError: Error?
 		var lastReturnedState: String?
 		
-		func tryResolve(_ attempt: () async throws -> Party?) async -> Party? {
+		func shouldRethrowImmediately(_ error: Error) -> Bool {
+			if error is CancellationError { return true }
+			if error is URLError { return true }
+			if let apiError = error as? APIError {
+				if apiError.recommendsReauthentication { return true }
+				switch apiError {
+				case .rateLimited, .scheduledDowntime:
+					return true
+				default:
+					return false
+				}
+			}
+			return false
+		}
+		
+		func tryResolve(_ attempt: () async throws -> Party?) async throws -> Party? {
+			try Task.checkCancellation()
 			do {
 				let decoded = try await attempt()
 				let resolved: Party
@@ -128,12 +144,15 @@ extension ValorantClient {
 				lastReturnedState = resolved.state.rawValue
 				return resolved.isCustomGame ? nil : resolved
 			} catch {
+				if shouldRethrowImmediately(error) {
+					throw error
+				}
 				firstMakeDefaultError = firstMakeDefaultError ?? error
 				return nil
 			}
 		}
 		
-		if let resolved = await tryResolve({
+		if let resolved = try await tryResolve({
 			try await self.send(EmptyPostPartyRequest(
 				path: "/parties/v1/parties/\(party)/makedefault",
 				queryParams: [("queueID", queueID.rawValue)]
@@ -141,7 +160,7 @@ extension ValorantClient {
 		}) {
 			return resolved
 		}
-		if let resolved = await tryResolve({
+		if let resolved = try await tryResolve({
 			try await self.send(EmptyPostPartyRequest(
 				path: "/parties/v1/parties/\(party)/makedefault",
 				queryParams: [("queueId", queueID.rawValue)]
@@ -149,22 +168,22 @@ extension ValorantClient {
 		}) {
 			return resolved
 		}
-		if let resolved = await tryResolve({
+		if let resolved = try await tryResolve({
 			try await self.send(MakeDefaultQueueRequest(partyID: party, queueID: queueID))
 		}) {
 			return resolved
 		}
-		if let resolved = await tryResolve({
+		if let resolved = try await tryResolve({
 			try await self.send(EmptyPostPartyRequest(path: "/parties/v1/parties/\(party)/makedefault"))
 		}) {
 			return (try? await self.changeQueue(to: queueID, in: party)) ?? resolved
 		}
-		if let resolved = await tryResolve({
+		if let resolved = try await tryResolve({
 			try await self.send(MakeDefaultQueueBodyRequest(partyID: party, queueID: queueID))
 		}) {
 			return resolved
 		}
-		if let resolved = await tryResolve({
+		if let resolved = try await tryResolve({
 			try await self.send(EmptyPostPartyRequest(
 				path: "/parties/v1/parties/\(party)/makedefault/\(encodePathSegment(queueID.rawValue))"
 			))
@@ -173,10 +192,10 @@ extension ValorantClient {
 		}
 		
 		// Solo safety-net reset: Riot immediately assigns a fresh DEFAULT party when leaving solo.
-		let current = try? await getPartyInfo(for: party)
-		if current == nil || (current?.members.count ?? 0) <= 1 {
+		let current = try await getPartyInfo(for: party)
+		if current.members.count <= 1 {
 			try await removePlayerFromParty(userID)
-			try? await Task.sleep(nanoseconds: 250_000_000)
+			try await Task.sleep(nanoseconds: 250_000_000)
 			if let fresh = try await getPartyInfo(), !fresh.isCustomGame {
 				return (try? await changeQueue(to: queueID, in: fresh.id)) ?? fresh
 			}
@@ -240,18 +259,6 @@ extension ValorantClient {
 			_ = try await setCustomGameSettings(settings, in: partyID)
 			_ = try await startCustomGame(in: partyID)
 		}
-	}
-	
-	public func getPartyMUCTokenResponse(for partyID: Party.ID) async throws -> MUCTokenResponse {
-		do {
-			return try await send(PartyMUCTokenRequest(partyID: partyID))
-		} catch APIError.resourceNotFound, APIError.badResponseCode(404, _, _) {
-			return try await send(PartyChatTokenRequest(partyID: partyID))
-		}
-	}
-	
-	public func getPartyMUCToken(for partyID: Party.ID) async throws -> String {
-		try await getPartyMUCTokenResponse(for: partyID).token
 	}
 }
 
@@ -523,26 +530,6 @@ private struct StartSoloExperienceRequest: JSONEncodingRequest, Encodable, Statu
 		case gameType
 		case module
 	}
-}
-
-private struct PartyChatTokenRequest: GetJSONRequest, LiveGameRequest {
-	var partyID: Party.ID
-	
-	var path: String {
-		"/parties/v1/parties/\(partyID)/chattoken"
-	}
-	
-	typealias Response = MUCTokenResponse
-}
-
-private struct PartyMUCTokenRequest: GetJSONRequest, LiveGameRequest {
-	var partyID: Party.ID
-	
-	var path: String {
-		"/parties/v1/parties/\(partyID)/muctoken"
-	}
-	
-	typealias Response = MUCTokenResponse
 }
 
 private struct CustomGameConfigsRequest: GetJSONRequest, LiveGameRequest {
