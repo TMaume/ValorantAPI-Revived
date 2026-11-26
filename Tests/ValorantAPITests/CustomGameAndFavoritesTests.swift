@@ -180,6 +180,187 @@ final class CustomGameAndFavoritesTests: XCTestCase {
 		XCTAssertTrue(selectable.contains("/Game/GameModes/HURM/HURM.HURM_C"))
 	}
 	
+	func testLiveShortNameConfigsResolveCanonicalPaths() throws {
+		let liveJSON = Data("""
+		{
+			"Enabled": true,
+			"EnabledMaps": [
+				"Ascent", "Bonsai", "Canyon", "Duality",
+				"Skirmish_A", "Skirmish_B", "Skirmish_C", "Skirmish_E", "Skirmish_D",
+				"Foxtrot",
+				"HURM_Alley", "HURM_Bowl", "HURM_Helix", "HURM_HighTide", "HURM_Yard",
+				"Infinity", "Jam", "Juliett", "Pitt", "Plummet", "Port", "Rook", "Triad"
+			],
+			"EnabledModes": [
+				"BombGameMode",
+				"DeathmatchGameMode",
+				"GunGameTeamsGameMode",
+				"HURMGameMode",
+				"QuickBombGameMode",
+				"SkirmishGameMode",
+				"Swiftplay_EoRCredits_GameMode"
+			],
+			"Queues": [
+				{
+					"QueueID": "unrated",
+					"Enabled": true,
+					"Mode": "BombGameMode",
+					"MapWeights": ["Duality:1", "Triad:1", "Ascent:1"],
+					"MapPool": ["Duality", "Triad", "Bonsai", "Ascent", "Port", "Foxtrot", "Canyon", "Pitt", "Jam", "Juliett", "Infinity", "Rook", "Plummet"]
+				},
+				{
+					"QueueID": "competitive",
+					"Enabled": true,
+					"Mode": "BombGameMode",
+					"MapWeights": ["Duality:1", "Ascent:0"],
+					"MapPool": ["Duality", "Triad", "Jam", "Juliett", "Infinity", "Rook", "Plummet"]
+				},
+				{
+					"QueueID": "abilitydraftarena",
+					"Enabled": true,
+					"Mode": "AbilityDraftArenaGameMode",
+					"MapWeights": ["AbilityDraft:1"],
+					"MapPool": ["AbilityDraft"]
+				},
+				{
+					"QueueID": "skirmish2v2",
+					"Enabled": true,
+					"Mode": "SkirmishGameMode",
+					"MapWeights": ["Skirmish_A:1", "Skirmish_B:1", "Skirmish_C:1", "Skirmish_D:1", "Skirmish_E:1"],
+					"MapPool": ["Skirmish_A", "Skirmish_B", "Skirmish_C", "Skirmish_D", "Skirmish_E"]
+				},
+				{
+					"QueueID": "swiftplay",
+					"Enabled": true,
+					"Mode": "Swiftplay_EoRCredits_GameMode",
+					"MapWeights": [],
+					"MapPool": ["Duality", "Triad", "Bonsai", "Ascent", "Port", "Foxtrot", "Canyon", "Pitt", "Jam", "Juliett", "Infinity", "Rook", "Plummet"]
+				},
+				{
+					"QueueID": "deathmatch",
+					"Enabled": true,
+					"Mode": "DeathmatchGameMode",
+					"MapWeights": ["Duality:1", "Ascent:0"],
+					"MapPool": ["Duality", "Triad", "Jam", "Juliett", "Infinity", "Rook", "Plummet"]
+				},
+				{
+					"QueueID": "hurm",
+					"Enabled": true,
+					"Mode": "HURMGameMode",
+					"MapWeights": ["HURM_Alley:1", "HURM_Yard:1", "HURM_Bowl:1", "HURM_Helix:1", "HURM_HighTide:1"],
+					"MapPool": ["HURM_Alley", "HURM_Yard", "HURM_Bowl", "HURM_Helix", "HURM_HighTide"]
+				},
+				{
+					"QueueID": "spikerush",
+					"Enabled": true,
+					"Mode": "QuickBombGameMode",
+					"MapWeights": ["Duality:1", "Ascent:1"],
+					"MapPool": ["Duality", "Triad", "Bonsai", "Ascent", "Port", "Foxtrot", "Canyon", "Pitt", "Jam", "Juliett", "Infinity", "Rook", "Plummet"]
+				},
+				{
+					"QueueID": "ggteam",
+					"Enabled": true,
+					"Mode": "GunGameTeamsGameMode",
+					"MapWeights": ["Duality:1", "Ascent:1"],
+					"MapPool": ["Duality", "Triad", "Bonsai", "Ascent", "Port", "Foxtrot", "Canyon", "Pitt", "Jam", "Juliett", "Infinity", "Rook", "Plummet"]
+				}
+			]
+		}
+		""".utf8)
+		
+		let configs = try ValorantClient.responseDecoder.decode(CustomGameConfigs.self, from: liveJSON)
+		XCTAssertEqual(configs.queues.first(where: { $0.queueID == "swiftplay" })?.mapPaths.count, 13)
+		
+		let expectedModes = [
+			"/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+			"/Game/GameModes/Deathmatch/DeathmatchGameMode.DeathmatchGameMode_C",
+			"/Game/GameModes/GunGame/GunGameTeamsGameMode.GunGameTeamsGameMode_C",
+			"/Game/GameModes/HURM/HURMGameMode.HURMGameMode_C",
+			"/Game/GameModes/QuickBomb/QuickBombGameMode.QuickBombGameMode_C",
+			"/Game/GameModes/Skirmish/SkirmishGameMode.SkirmishGameMode_C",
+			"/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_GameMode.Swiftplay_EoRCredits_GameMode_C",
+		]
+		XCTAssertEqual(configs.selectableModes(), expectedModes)
+		
+		let nonTacticalFullPaths = Set((Self.hurmMaps + Self.skirmishMaps + Self.gauntletMaps + Self.rangeMaps + Self.internalMaps).map { $0.lowercased() })
+		let nonTacticalShortNames = Set(["hurm_alley", "skirmish_a", "abilitydraft", "rangev2"])
+		
+		for mode in [
+			"BombGameMode",
+			"/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+			"DeathmatchGameMode",
+			"/Game/GameModes/Deathmatch/DeathmatchGameMode.DeathmatchGameMode_C",
+			"GunGameTeamsGameMode",
+			"/Game/GameModes/GunGame/GunGameTeamsGameMode.GunGameTeamsGameMode_C",
+			"QuickBombGameMode",
+			"/Game/GameModes/QuickBomb/QuickBombGameMode.QuickBombGameMode_C",
+			"Swiftplay_EoRCredits_GameMode",
+			"/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_GameMode.Swiftplay_EoRCredits_GameMode_C",
+		] {
+			XCTAssertEqual(
+				Set(configs.validMaps(forMode: mode, knownNonTacticalMapPaths: nonTacticalFullPaths)),
+				Set(Self.tacticalMaps),
+				"Mode \(mode) with full-path exclusions failed"
+			)
+			XCTAssertEqual(
+				Set(configs.validMaps(forMode: mode, knownNonTacticalMapPaths: nonTacticalShortNames)),
+				Set(Self.tacticalMaps),
+				"Mode \(mode) with short-name exclusions failed"
+			)
+		}
+		
+		for hurmMode in ["HURMGameMode", "/Game/GameModes/HURM/HURMGameMode.HURMGameMode_C"] {
+			XCTAssertEqual(Set(configs.validMaps(forMode: hurmMode)), Set(Self.hurmMaps))
+		}
+		for skirmishMode in ["SkirmishGameMode", "/Game/GameModes/Skirmish/SkirmishGameMode.SkirmishGameMode_C"] {
+			XCTAssertEqual(Set(configs.validMaps(forMode: skirmishMode)), Set(Self.skirmishMaps))
+		}
+	}
+	
+	func testCallerSuppliedAndFallbackCanonicalization() {
+		XCTAssertEqual(
+			CustomGameConfigs.canonicalMapPath(
+				for: "FutureMap",
+				knownMapPathsByShortName: ["futuremap": "/Game/Maps/FutureSubdir/FutureMap"]
+			),
+			"/Game/Maps/FutureSubdir/FutureMap"
+		)
+		XCTAssertEqual(
+			CustomGameConfigs.canonicalMapPath(for: "HURM_NewArena"),
+			"/Game/Maps/HURM/HURM_NewArena/HURM_NewArena"
+		)
+		XCTAssertEqual(
+			CustomGameConfigs.canonicalMapPath(for: "Solaris"),
+			"/Game/Maps/Solaris/Solaris"
+		)
+		XCTAssertEqual(
+			CustomGameConfigs.canonicalModePath(
+				for: "FutureLTM_GameMode",
+				knownModeFoldersByShortName: ["futureltm_gamemode": "_Special/FutureLTM"]
+			),
+			"/Game/GameModes/_Special/FutureLTM/FutureLTM_GameMode.FutureLTM_GameMode_C"
+		)
+		XCTAssertEqual(
+			CustomGameConfigs.canonicalModePath(for: "CustomTestGameMode"),
+			"/Game/GameModes/CustomTest/CustomTestGameMode.CustomTestGameMode_C"
+		)
+	}
+	
+	func testRequestEncoderDoesNotEscapeSlashes() throws {
+		let settings = Party.CustomGameData.Settings(
+			map: "/Game/Maps/Ascent/Ascent",
+			mode: "/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+			useBots: false,
+			gamePod: "aresriot.aws-euw3-prod.eu-gp-paris-1",
+			gameRules: .init()
+		)
+		let data = try ValorantClient.requestEncoder.encode(settings)
+		let json = String(decoding: data, as: UTF8.self)
+		XCTAssertTrue(json.contains("\"/Game/Maps/Ascent/Ascent\""))
+		XCTAssertTrue(json.contains("\"/Game/GameModes/Bomb/BombGameMode.BombGameMode_C\""))
+		XCTAssertFalse(json.contains("\\/"))
+	}
+	
 	func testFavoritesContainsAndSync() throws {
 		let userID = User.ID("3fa8598d-066e-5bdb-998c-74c015c5dba5")!
 		let favID = LowercaseUUID()

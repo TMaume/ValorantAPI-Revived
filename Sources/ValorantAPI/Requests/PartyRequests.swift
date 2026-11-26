@@ -112,6 +112,16 @@ extension ValorantClient {
 		try await send(MakeCustomGameRequest(partyID: party))
 	}
 	
+	public func switchQueue(to queue: QueueID, in party: Party) async throws -> Party {
+		if queue == .custom {
+			return party.isCustomGame ? party : try await makeCustomGame(in: party.id)
+		}
+		if party.isCustomGame {
+			return try await makeDefaultQueue(queue, in: party.id)
+		}
+		return try await changeQueue(to: queue, in: party.id)
+	}
+	
 	public func makeDefaultQueue(_ queueID: QueueID = .unrated, in party: Party.ID) async throws -> Party {
 		var firstMakeDefaultError: Error?
 		var lastReturnedState: String?
@@ -152,43 +162,38 @@ extension ValorantClient {
 			}
 		}
 		
-		if let resolved = try await tryResolve({
-			try await self.send(EmptyPostPartyRequest(
-				path: "/parties/v1/parties/\(party)/makedefault",
-				queryParams: [("queueID", queueID.rawValue)]
-			))
-		}) {
-			return resolved
-		}
-		if let resolved = try await tryResolve({
-			try await self.send(EmptyPostPartyRequest(
-				path: "/parties/v1/parties/\(party)/makedefault",
-				queryParams: [("queueId", queueID.rawValue)]
-			))
-		}) {
-			return resolved
-		}
-		if let resolved = try await tryResolve({
-			try await self.send(MakeDefaultQueueRequest(partyID: party, queueID: queueID))
-		}) {
-			return resolved
-		}
-		if let resolved = try await tryResolve({
-			try await self.send(EmptyPostPartyRequest(path: "/parties/v1/parties/\(party)/makedefault"))
-		}) {
-			return (try? await self.changeQueue(to: queueID, in: party)) ?? resolved
-		}
-		if let resolved = try await tryResolve({
-			try await self.send(MakeDefaultQueueBodyRequest(partyID: party, queueID: queueID))
-		}) {
-			return resolved
-		}
-		if let resolved = try await tryResolve({
-			try await self.send(EmptyPostPartyRequest(
-				path: "/parties/v1/parties/\(party)/makedefault/\(encodePathSegment(queueID.rawValue))"
-			))
-		}) {
-			return resolved
+		for strategy in await MakeDefaultStrategyCache.shared.orderedStrategies() {
+			let resolved = try await tryResolve {
+				switch strategy {
+				case .queryUpperJSON:
+					return try await self.send(MakeDefaultQueueRequest(partyID: party, queueID: queueID))
+				case .queryUpperEmpty:
+					return try await self.send(EmptyPostPartyRequest(
+						path: "/parties/v1/parties/\(party)/makedefault",
+						queryParams: [("queueID", queueID.rawValue)]
+					))
+				case .bareJSON:
+					return try await self.send(BareMakeDefaultRequest(partyID: party))
+				case .bodyJSON:
+					return try await self.send(MakeDefaultQueueBodyRequest(partyID: party, queueID: queueID))
+				case .queryLowerEmpty:
+					return try await self.send(EmptyPostPartyRequest(
+						path: "/parties/v1/parties/\(party)/makedefault",
+						queryParams: [("queueId", queueID.rawValue)]
+					))
+				case .pathSegment:
+					return try await self.send(EmptyPostPartyRequest(
+						path: "/parties/v1/parties/\(party)/makedefault/\(encodePathSegment(queueID.rawValue))"
+					))
+				}
+			}
+			if let resolved {
+				await MakeDefaultStrategyCache.shared.recordSuccess(strategy)
+				if resolved.matchmakingData.queueID != queueID {
+					return try await self.changeQueue(to: queueID, in: resolved.id)
+				}
+				return resolved
+			}
 		}
 		
 		// Solo safety-net reset: Riot immediately assigns a fresh DEFAULT party when leaving solo.
@@ -197,7 +202,10 @@ extension ValorantClient {
 			try await removePlayerFromParty(userID)
 			try await Task.sleep(nanoseconds: 250_000_000)
 			if let fresh = try await getPartyInfo(), !fresh.isCustomGame {
-				return (try? await changeQueue(to: queueID, in: fresh.id)) ?? fresh
+				if fresh.matchmakingData.queueID != queueID {
+					return try await changeQueue(to: queueID, in: fresh.id)
+				}
+				return fresh
 			}
 		}
 		
@@ -214,7 +222,10 @@ extension ValorantClient {
 	}
 	
 	public func setCustomGameSettings(_ settings: Party.CustomGameData.Settings, in party: Party.ID) async throws -> Party {
-		try await send(SetCustomGameSettingsRequest(partyID: party, settings: settings))
+		var normalized = settings
+		normalized.map = CustomGameConfigs.canonicalMapPath(for: normalized.map)
+		normalized.mode = CustomGameConfigs.canonicalModePath(for: normalized.mode)
+		return try await send(SetCustomGameSettingsRequest(partyID: party, settings: normalized))
 	}
 	
 	public func changeCustomGameTeam(player: Player.ID, to team: CustomGameTeam, in party: Party.ID) async throws -> Party {
@@ -246,9 +257,10 @@ extension ValorantClient {
 				?? customParty.members.first(where: { $0.id == userID })?.pings.min(by: { $0.ping < $1.ping })?.serverID
 				?? customParty.customGameData?.settings.gamePod
 				?? ""
-			let rangeMap = (try? await getCustomGameConfigs().enabledMaps.first {
+			let rawRangeMap = (try? await getCustomGameConfigs().enabledMaps.first {
 				$0.localizedCaseInsensitiveContains("Range") || $0.localizedCaseInsensitiveContains("Poveglia")
 			}) ?? "/Game/Maps/PovegliaV2/RangeV2"
+			let rangeMap = CustomGameConfigs.canonicalMapPath(for: rawRangeMap)
 			let settings = Party.CustomGameData.Settings(
 				map: rangeMap,
 				mode: "/Game/GameModes/ShootingRange/ShootingRangeGameMode.ShootingRangeGameMode_C",
@@ -259,6 +271,29 @@ extension ValorantClient {
 			_ = try await setCustomGameSettings(settings, in: partyID)
 			_ = try await startCustomGame(in: partyID)
 		}
+	}
+}
+
+private enum MakeDefaultStrategy: CaseIterable, Sendable {
+	case queryUpperJSON
+	case queryUpperEmpty
+	case bareJSON
+	case bodyJSON
+	case queryLowerEmpty
+	case pathSegment
+}
+
+private actor MakeDefaultStrategyCache {
+	static let shared = MakeDefaultStrategyCache()
+	private var preferred: MakeDefaultStrategy?
+	
+	func orderedStrategies() -> [MakeDefaultStrategy] {
+		guard let preferred else { return MakeDefaultStrategy.allCases }
+		return [preferred] + MakeDefaultStrategy.allCases.filter { $0 != preferred }
+	}
+	
+	func recordSuccess(_ strategy: MakeDefaultStrategy) {
+		preferred = strategy
 	}
 }
 
@@ -562,6 +597,18 @@ private struct MakeDefaultQueueRequest: JSONJSONRequest, Encodable, LiveGameRequ
 	
 	var urlParams: [URLParameter] {
 		("queueID", queueID.rawValue)
+	}
+	
+	private enum CodingKeys: CodingKey {}
+	
+	typealias Response = Party
+}
+
+private struct BareMakeDefaultRequest: JSONJSONRequest, Encodable, LiveGameRequest {
+	var partyID: Party.ID
+	
+	var path: String {
+		"/parties/v1/parties/\(partyID)/makedefault"
 	}
 	
 	private enum CodingKeys: CodingKey {}

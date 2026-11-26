@@ -3,7 +3,9 @@ import Protoquest
 import HandyOperators
 
 extension ValorantClient {
-	static let requestEncoder = JSONEncoder()
+	static let requestEncoder = JSONEncoder() <- {
+		$0.outputFormatting = [.withoutEscapingSlashes]
+	}
 	
 	/// The decoder used to decode JSON data received from Riot's servers.
 	/// Exposed for conveniently mocking preview data by decoding JSONs from the api
